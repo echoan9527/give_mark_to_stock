@@ -82,6 +82,11 @@ CONFIG = {
     # ================= 退出机制开关 =================
     "BREAKDOWN_CONFIRM_DAYS": 3,           # 破位防守需要连续多少个交易日收盘低于 MA20；3 是上一轮 M 场景验证后的新基准
     "STRONG_BREAKDOWN_CONFIRM_DAYS": None, # 强市场专用破位确认天数；None 表示沿用 BREAKDOWN_CONFIRM_DAYS
+    "WEAK_BREAKDOWN_CONFIRM_DAYS": None,   # 弱市场专用破位确认天数；None 表示沿用 BREAKDOWN_CONFIRM_DAYS，用于测试转弱后是否应更快防守
+    "ENABLE_WEAK_HOLDING_EXIT": True,      # 市场转弱后是否对已有持仓启用额外退出规则；当前基准为 5 天 + 10% 收益上限
+    "WEAK_HOLDING_EXIT_DAYS": 5,           # 持仓连续经历弱市场达到多少天后触发转弱退出检查
+    "WEAK_HOLDING_EXIT_MAX_RETURN": 0.10,  # 转弱退出只处理收益率不高于该阈值的持仓；9%-10% 是多轮消融验证后的候选主策略区间
+    "WEAK_HOLDING_EXIT_ONLY_NON_WEAK_ENTRY": True, # True 表示只处理信号日不是弱市的旧持仓，聚焦“强/中转弱”的风险
     "TRAIL_PROFIT_TRIGGER": 0.20,          # 持仓最高价超过买入价 20% 后，启动回撤止盈观察；这是上一轮 M 场景验证后的新基准
     "TRAIL_DRAWDOWN_RATE": 0.10,           # 启动回撤止盈后，从最高价回撤 10% 触发卖出
     "ENABLE_EXCITEMENT_TAKE_PROFIT": True, # 是否启用亢奋止盈；用于测试是否过早卖飞强势股
@@ -93,7 +98,7 @@ CONFIG = {
     "NEUTRAL_BREADTH_MA20": 0.35,          # 中性市场要求至少 35% 股票站上 MA20；低于该值说明短线环境偏弱
     "NEUTRAL_BREADTH_MA60": 0.25,          # 中性市场要求至少 25% 股票站上 MA60；低于该值说明多数股票处于中期弱势
     "STRONG_MAX_HOLDINGS": 8,              # 强市场最多持仓 8 只；这是上一轮 E 场景验证后沉淀的新基准
-    "STRONG_POSITION_PER_STOCK": 0.125,    # 强市场单票仓位 12.5%，8 只约等于满仓，避免单票过度集中
+    "STRONG_POSITION_PER_STOCK": 0.1125,   # 强市场单票仓位 11.25%，8 只约 90% 仓位；上一轮 AB 测试中回撤更低且风险效率更好
     "NEUTRAL_ALLOW_BUY": True,             # 中性市场是否允许开仓；用于消融测试时验证中性行情是否拖累策略
     "NEUTRAL_BUY_SCORE_OFFSET": 0,         # 中性市场买入分数额外提高多少分；0 表示不额外提高
     "NEUTRAL_MAX_HOLDINGS": 2,             # 中性市场最多持仓 2 只，允许少量试错，但避免接近满仓暴露
@@ -101,7 +106,7 @@ CONFIG = {
     "WEAK_ALLOW_HIGH_SCORE_BUY": True,     # 弱市场不完全禁买，只允许极高分信号小仓试错，避免错过结构性强势票
     "WEAK_BUY_SCORE_THRESHOLD": 78,        # 弱市场买入分数门槛，必须明显高于普通阈值才允许开仓
     "WEAK_MAX_HOLDINGS": 1,                # 弱市场最多持仓 1 只，控制极端环境下的风险暴露
-    "WEAK_POSITION_MULTIPLIER": 0.25,      # 弱市场单票仓位按正常仓位的 25% 执行，只做小仓位观察和试错
+    "WEAK_POSITION_MULTIPLIER": 0.20,      # 弱市场单票仓位按正常仓位的 20% 执行；上一轮仓位敏感性测试中收益/回撤更均衡
     "WEAK_STOP_LOSS_RATE": None,           # 弱市场专用止损阈值；None 表示沿用参数网格里的 STOP_LOSS_RATE
 
     # 候选排序：不改变是否入选，只改变多个候选同时出现时优先买谁。
@@ -112,13 +117,60 @@ CONFIG = {
     "RANK_WEIGHT_BREAKOUT": 10,            # 突破质量排序权重，偏好刚突破但不极端追高的股票
     "RANK_WEIGHT_RSI": 8,                  # RSI 舒适区排序权重，偏好强但不过热的股票
     "RANK_WEIGHT_DISTANCE": 10,            # 距离 MA20 排序权重，距离太远会扣分，减少追高买入
+    "CANDIDATE_WATCH_HORIZONS": [5, 10, 20], # 跟踪因持仓上限未买入候选股之后 5/10/20 个交易日的表现
 
-    # ================= 消融对照测试 =================
+    # ================= 稳定性验证 / 消融对照测试 =================
+    "ENABLE_STABILITY_TESTS": True,        # 是否启用稳定性验证；开启后跳过训练寻优，直接用固定主策略跑不同股票池/随机种子
+    "STABILITY_FIXED_PARAMS": {            # 稳定性验证固定使用的主策略参数；避免在盲测期反复挑参数造成过拟合
+        "BUY_SCORE_THRESHOLD": 70,
+        "STOP_LOSS_RATE": -0.09,
+        "MAX_HOLD_DAYS": 10,
+        "RSI_OVERSOLD": 80,
+        "TIME_SUNK_TOLERANCE": 0.03,
+    },
     "ENABLE_PARAM_RECHECKS": True,         # 是否在盲测前复验固定参数和训练 Top 参数，用来检查训练寻优是否误导
     "PARAM_RECHECK_TOP_N": 5,              # 训练集排名前 N 的参数组合也进入盲测复验
     "USE_PARAM_RECHECK_WINNER_FOR_ABLATION": True, # 消融测试是否使用固定参数复验胜出的参数，而不是训练 Top1
-    "ENABLE_ABLATION_TESTS": True,         # 是否在训练出 Top1 参数后，一次性跑完下方消融场景
+    "ABLATION_FIXED_PARAMS": {             # 消融实验锁定使用的参数；避免复验赢家变化导致实验基准漂移
+        "BUY_SCORE_THRESHOLD": 70,
+        "STOP_LOSS_RATE": -0.09,
+        "MAX_HOLD_DAYS": 10,
+        "RSI_OVERSOLD": 80,
+        "TIME_SUNK_TOLERANCE": 0.03,
+    },
+    "ENABLE_ABLATION_TESTS": False,        # 是否在训练出 Top1 参数后，一次性跑完下方消融场景；稳定性验证阶段默认关闭
 }
+
+STABILITY_SCENARIOS = [
+    {
+        "id": "SV_sample600_seed20260814",
+        "name": "SV_抽样600_seed20260814",
+        "enabled": True,
+        "description": "当前主样本复验，用来和过去多轮结果保持可比。",
+        "overrides": {"MAX_STOCKS_PER_BOARD": 600, "POOL_SAMPLE_SEED": 20260814},
+    },
+    {
+        "id": "SV_sample600_seed20240101",
+        "name": "SV_抽样600_seed20240101",
+        "enabled": True,
+        "description": "换一个随机种子抽样 600 只主板股票，验证策略是否依赖原始样本。",
+        "overrides": {"MAX_STOCKS_PER_BOARD": 600, "POOL_SAMPLE_SEED": 20240101},
+    },
+    {
+        "id": "SV_sample600_seed20250101",
+        "name": "SV_抽样600_seed20250101",
+        "enabled": True,
+        "description": "再换一个随机种子抽样 600 只主板股票，继续检查样本稳定性。",
+        "overrides": {"MAX_STOCKS_PER_BOARD": 600, "POOL_SAMPLE_SEED": 20250101},
+    },
+    {
+        "id": "SV_all_main",
+        "name": "SV_主板全量",
+        "enabled": False,
+        "description": "使用当前主板全部可用标的验证，不再随机抽样；耗时会明显更长。",
+        "overrides": {"MAX_STOCKS_PER_BOARD": None, "POOL_SAMPLE_SEED": None},
+    },
+]
 
 FIXED_PARAM_RECHECKS = [
     {
@@ -137,40 +189,103 @@ FIXED_PARAM_RECHECKS = [
 
 ABLATION_SCENARIOS = [
     {
-        "id": "M_baseline",
-        "name": "M_新候选主策略",
-        "description": "上一轮验证后的候选主策略：强市 8 只、破位确认 3 天、回撤止盈 20%/10%。",
-        "overrides": {},
+        "id": "AD_baseline_90pos",
+        "name": "AD_90%仓位基准",
+        "description": "采用上一轮确认的强市约 90% 仓位，锁定 70 分买入、-9% 止损、转弱 5 天 10% 退出，作为本轮转弱持仓处理基准。",
+        "overrides": {
+            "STRONG_MAX_HOLDINGS": 8,
+            "STRONG_POSITION_PER_STOCK": 0.1125,
+            "BREAKDOWN_CONFIRM_DAYS": 3,
+            "STRONG_BREAKDOWN_CONFIRM_DAYS": None,
+            "WEAK_BREAKDOWN_CONFIRM_DAYS": None,
+            "WEAK_HOLDING_EXIT_DAYS": 5,
+            "WEAK_HOLDING_EXIT_MAX_RETURN": 0.10,
+            "WEAK_STOP_LOSS_RATE": None,
+        },
     },
     {
-        "id": "N_weak_no_buy",
-        "name": "N_M加弱市禁买",
-        "description": "在 M 基础上弱市场完全不新开仓，验证弱市结构性机会是否值得保留。",
-        "overrides": {"WEAK_ALLOW_HIGH_SCORE_BUY": False},
+        "id": "AD_transition_exit_4d10",
+        "name": "AD_转弱4天10%",
+        "description": "只处理非弱市入场的旧持仓，把转弱退出从连续 5 天提前到 4 天，收益上限仍为 10%。",
+        "overrides": {
+            "STRONG_MAX_HOLDINGS": 8,
+            "STRONG_POSITION_PER_STOCK": 0.1125,
+            "ENABLE_WEAK_HOLDING_EXIT": True,
+            "WEAK_HOLDING_EXIT_DAYS": 4,
+            "WEAK_HOLDING_EXIT_MAX_RETURN": 0.10,
+            "WEAK_HOLDING_EXIT_ONLY_NON_WEAK_ENTRY": True,
+            "WEAK_STOP_LOSS_RATE": None,
+        },
     },
     {
-        "id": "O_weak_smaller_position",
-        "name": "O_M加弱市降仓",
-        "description": "弱市场仍允许高分票，但单票仓位从正常仓位的 25% 降到 15%。",
-        "overrides": {"WEAK_POSITION_MULTIPLIER": 0.15},
+        "id": "AD_transition_exit_3d10",
+        "name": "AD_转弱3天10%",
+        "description": "只处理非弱市入场的旧持仓，把转弱退出从连续 5 天提前到 3 天，测试更早退出能否减少弱市阶段回撤。",
+        "overrides": {
+            "STRONG_MAX_HOLDINGS": 8,
+            "STRONG_POSITION_PER_STOCK": 0.1125,
+            "ENABLE_WEAK_HOLDING_EXIT": True,
+            "WEAK_HOLDING_EXIT_DAYS": 3,
+            "WEAK_HOLDING_EXIT_MAX_RETURN": 0.10,
+            "WEAK_HOLDING_EXIT_ONLY_NON_WEAK_ENTRY": True,
+            "WEAK_STOP_LOSS_RATE": None,
+        },
     },
     {
-        "id": "P_weak_tighter_stop",
-        "name": "P_M加弱市5%止损",
-        "description": "弱市场使用 -5% 专用止损，验证能否压低弱市亏损。",
-        "overrides": {"WEAK_STOP_LOSS_RATE": -0.05},
+        "id": "AD_transition_exit_5d8",
+        "name": "AD_转弱5天8%",
+        "description": "连续弱市天数仍为 5 天，但收益上限从 10% 收紧到 8%，测试是否应更积极保护小幅盈利票。",
+        "overrides": {
+            "STRONG_MAX_HOLDINGS": 8,
+            "STRONG_POSITION_PER_STOCK": 0.1125,
+            "ENABLE_WEAK_HOLDING_EXIT": True,
+            "WEAK_HOLDING_EXIT_DAYS": 5,
+            "WEAK_HOLDING_EXIT_MAX_RETURN": 0.08,
+            "WEAK_HOLDING_EXIT_ONLY_NON_WEAK_ENTRY": True,
+            "WEAK_STOP_LOSS_RATE": None,
+        },
     },
     {
-        "id": "Q_weak_higher_score",
-        "name": "Q_M加弱市82分",
-        "description": "弱市场买入门槛从 78 提高到 82，验证更高质量信号能否减少弱市拖累。",
-        "overrides": {"WEAK_BUY_SCORE_THRESHOLD": 82},
+        "id": "AD_transition_exit_5d6",
+        "name": "AD_转弱5天6%",
+        "description": "连续弱市天数仍为 5 天，但收益上限收紧到 6%，测试更严格保护盈利是否会过早卖飞。",
+        "overrides": {
+            "STRONG_MAX_HOLDINGS": 8,
+            "STRONG_POSITION_PER_STOCK": 0.1125,
+            "ENABLE_WEAK_HOLDING_EXIT": True,
+            "WEAK_HOLDING_EXIT_DAYS": 5,
+            "WEAK_HOLDING_EXIT_MAX_RETURN": 0.06,
+            "WEAK_HOLDING_EXIT_ONLY_NON_WEAK_ENTRY": True,
+            "WEAK_STOP_LOSS_RATE": None,
+        },
     },
     {
-        "id": "R_weak_defensive_combo",
-        "name": "R_M加弱市组合防守",
-        "description": "弱市门槛 82、仓位 15%、止损 -5%，验证组合防守是否保留强市优势并压低弱市亏损。",
-        "overrides": {"WEAK_BUY_SCORE_THRESHOLD": 82, "WEAK_POSITION_MULTIPLIER": 0.15, "WEAK_STOP_LOSS_RATE": -0.05},
+        "id": "AD_transition_exit_3d8",
+        "name": "AD_转弱3天8%",
+        "description": "同时提前到连续弱市 3 天，并把收益上限收紧到 8%，测试更强转弱防守是否过度。",
+        "overrides": {
+            "STRONG_MAX_HOLDINGS": 8,
+            "STRONG_POSITION_PER_STOCK": 0.1125,
+            "ENABLE_WEAK_HOLDING_EXIT": True,
+            "WEAK_HOLDING_EXIT_DAYS": 3,
+            "WEAK_HOLDING_EXIT_MAX_RETURN": 0.08,
+            "WEAK_HOLDING_EXIT_ONLY_NON_WEAK_ENTRY": True,
+            "WEAK_STOP_LOSS_RATE": None,
+        },
+    },
+    {
+        "id": "AD_transition_exit_off",
+        "name": "AD_关闭转弱退出",
+        "description": "关闭转弱持仓退出，作为负向对照，确认该机制到底是在贡献收益还是干扰趋势持仓。",
+        "overrides": {
+            "STRONG_MAX_HOLDINGS": 8,
+            "STRONG_POSITION_PER_STOCK": 0.1125,
+            "ENABLE_WEAK_HOLDING_EXIT": False,
+            "WEAK_HOLDING_EXIT_DAYS": 5,
+            "WEAK_HOLDING_EXIT_MAX_RETURN": 0.10,
+            "WEAK_HOLDING_EXIT_ONLY_NON_WEAK_ENTRY": True,
+            "WEAK_STOP_LOSS_RATE": None,
+        },
     },
 ]
 
@@ -453,9 +568,6 @@ def passes_entry_quality_filter(today_k):
     return True
 
 def calculate_candidate_rank_score(today_k, recent_5, base_score):
-    if not CONFIG.get("ENABLE_CANDIDATE_RANKING", False):
-        return base_score
-
     close = today_k["收盘"]
     ma20 = today_k["MA20"]
     if ma20 <= 0:
@@ -465,6 +577,9 @@ def calculate_candidate_rank_score(today_k, recent_5, base_score):
     max_distance = CONFIG.get("MAX_ENTRY_DISTANCE_MA20")
     if max_distance is not None and distance_ma20 > max_distance:
         return None
+
+    if not CONFIG.get("ENABLE_CANDIDATE_RANKING", False):
+        return base_score
 
     rank_score = float(base_score)
 
@@ -502,10 +617,90 @@ def calculate_candidate_rank_score(today_k, recent_5, base_score):
 
     return rank_score
 
+def safe_float(value, default=np.nan):
+    try:
+        if pd.isna(value):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+def build_signal_snapshot(symbol, df, signal_date, market_context):
+    row = df.loc[signal_date]
+    state = market_context.get(signal_date, {}) if market_context else {}
+    ma20 = safe_float(row.get("MA20"))
+    ma60 = safe_float(row.get("MA60"))
+    close = safe_float(row.get("收盘"))
+    vol_ma20 = safe_float(row.get("Vol_MA20"), 0)
+    amount_ma20 = safe_float(row.get("Amount_MA20"))
+    recent_5 = df.loc[:signal_date].iloc[-5:]
+
+    distance_ma20 = close / ma20 - 1 if ma20 and ma20 > 0 else np.nan
+    distance_ma60 = close / ma60 - 1 if ma60 and ma60 > 0 else np.nan
+    volume_ratio = safe_float(row.get("成交量"), 0) / (vol_ma20 + 1e-9) if vol_ma20 is not None else np.nan
+
+    return {
+        "信号日": signal_date.strftime("%Y-%m-%d"),
+        "信号日市场环境": state.get("regime", ""),
+        "信号日市场MA20宽度": state.get("ma20_ratio", np.nan),
+        "信号日市场MA60宽度": state.get("ma60_ratio", np.nan),
+        "信号日市场MA60上行宽度": state.get("ma60_up_ratio", np.nan),
+        "信号日指数站上MA20": state.get("bench_close_above_ma20", ""),
+        "信号日指数MA20上行": state.get("bench_ma20_up", ""),
+        "信号日指数站上MA60": state.get("bench_close_above_ma60", ""),
+        "信号日收盘": close,
+        "信号日RSI14": safe_float(row.get("RSI14")),
+        "信号日量比": volume_ratio,
+        "信号日20日均成交额": amount_ma20,
+        "信号日距MA20": distance_ma20,
+        "信号日距MA60": distance_ma60,
+        "信号日站上MA20": bool(close > ma20) if not pd.isna(close) and not pd.isna(ma20) else "",
+        "信号日站上MA60": bool(close > ma60) if not pd.isna(close) and not pd.isna(ma60) else "",
+        "信号日MA20上行": bool(row.get("MA20", np.nan) >= row.get("MA20_prev5", np.nan)) if not pd.isna(row.get("MA20_prev5", np.nan)) else "",
+        "信号日MA60上行": bool(row.get("MA60", np.nan) >= row.get("MA60_prev5", np.nan)) if not pd.isna(row.get("MA60_prev5", np.nan)) else "",
+        "信号日突破20日新高": bool(close >= row.get("High_20", np.inf)) if not pd.isna(row.get("High_20", np.nan)) else "",
+        "信号日前5日阳线数": int((recent_5["收盘"] > recent_5["开盘"]).sum()) if not recent_5.empty else 0,
+    }
+
+def build_execution_snapshot(df, buy_date, prev_close, market_context):
+    row = df.loc[buy_date]
+    state = market_context.get(buy_date, {}) if market_context else {}
+    open_price = safe_float(row.get("开盘"))
+    ma20 = safe_float(row.get("MA20"))
+    buy_gap = open_price / prev_close - 1 if prev_close and prev_close > 0 else np.nan
+    open_distance_ma20 = open_price / ma20 - 1 if ma20 and ma20 > 0 else np.nan
+    return {
+        "买入日市场环境": state.get("regime", ""),
+        "买入日市场MA20宽度": state.get("ma20_ratio", np.nan),
+        "买入日市场MA60宽度": state.get("ma60_ratio", np.nan),
+        "买入日开盘跳空": buy_gap,
+        "买入日开盘距MA20": open_distance_ma20,
+    }
+
+def should_trigger_weak_holding_exit(pos, return_rate, regime):
+    if not CONFIG.get("ENABLE_WEAK_HOLDING_EXIT", False) or regime != "弱":
+        return False
+
+    if CONFIG.get("WEAK_HOLDING_EXIT_ONLY_NON_WEAK_ENTRY", True):
+        signal_regime = pos.get("entry_snapshot", {}).get("信号日市场环境")
+        if signal_regime == "弱":
+            return False
+
+    weak_days = pos.get("weak_regime_days", 0)
+    required_days = CONFIG.get("WEAK_HOLDING_EXIT_DAYS", 0)
+    max_return = CONFIG.get("WEAK_HOLDING_EXIT_MAX_RETURN")
+    if weak_days < required_days:
+        return False
+    if max_return is not None and return_rate > max_return:
+        return False
+    return True
+
 def is_ma20_breakdown(df, current_date, regime):
     confirm_days = CONFIG.get("BREAKDOWN_CONFIRM_DAYS", 2)
     if regime == "强" and CONFIG.get("STRONG_BREAKDOWN_CONFIRM_DAYS") is not None:
         confirm_days = CONFIG["STRONG_BREAKDOWN_CONFIRM_DAYS"]
+    if regime == "弱" and CONFIG.get("WEAK_BREAKDOWN_CONFIRM_DAYS") is not None:
+        confirm_days = CONFIG["WEAK_BREAKDOWN_CONFIRM_DAYS"]
 
     if confirm_days <= 0:
         return False
@@ -629,6 +824,73 @@ def calculate_portfolio_market_value(portfolio, market_data, current_date, colum
             total += pos["shares"] * price
     return total
 
+def build_candidate_watch_record(symbol, score, rank_score, prev_close, signal_snapshot, current_date, market_data, stock_pool, market_context, portfolio_size, holding_limit):
+    if symbol not in market_data or current_date not in market_data[symbol].index:
+        return None
+
+    df = market_data[symbol]
+    row = df.loc[current_date]
+    ideal_price = safe_float(row.get("开盘"))
+    if pd.isna(ideal_price) or ideal_price <= 0:
+        return None
+
+    entry_price = ideal_price * (1 + CONFIG["SLIPPAGE_RATE"])
+    buy_gap = ideal_price / prev_close - 1 if prev_close and prev_close > 0 else np.nan
+    state = market_context.get(current_date, {}) if market_context else {}
+    record = {
+        "代码": str(symbol).zfill(6),
+        "名称": stock_pool.get(symbol, "未知"),
+        "信号日": signal_snapshot.get("信号日", ""),
+        "计划买入日": current_date.strftime("%Y-%m-%d"),
+        "信号日市场环境": signal_snapshot.get("信号日市场环境", ""),
+        "计划买入日市场环境": state.get("regime", ""),
+        "买入分数": score,
+        "排序分": round(rank_score, 2),
+        "信号日收盘": prev_close,
+        "计划买入开盘": ideal_price,
+        "计划买入执行价": entry_price,
+        "计划买入开盘跳空": buy_gap,
+        "若非满仓也会高开跳过": bool(buy_gap > CONFIG["MAX_BUY_GAP_RATE"]) if not pd.isna(buy_gap) else "",
+        "跳过原因": "持仓上限",
+        "当时持仓数量": portfolio_size,
+        "当时持仓上限": holding_limit,
+        **signal_snapshot,
+    }
+
+    try:
+        loc = df.index.get_loc(current_date)
+        if not isinstance(loc, (int, np.integer)):
+            return record
+    except KeyError:
+        return record
+
+    horizons = CONFIG.get("CANDIDATE_WATCH_HORIZONS", [5, 10, 20])
+    for horizon in horizons:
+        future_idx = loc + int(horizon)
+        date_col = f"未来{horizon}日日期"
+        close_col = f"未来{horizon}日收盘"
+        ret_col = f"未来{horizon}日收益率"
+        if future_idx < len(df):
+            future_row = df.iloc[future_idx]
+            record[date_col] = future_row.name.strftime("%Y-%m-%d")
+            record[close_col] = safe_float(future_row.get("收盘"))
+            record[ret_col] = record[close_col] / entry_price - 1 if entry_price > 0 else np.nan
+        else:
+            record[date_col] = ""
+            record[close_col] = np.nan
+            record[ret_col] = np.nan
+
+    max_horizon = max(int(h) for h in horizons) if horizons else 20
+    future_window = df.iloc[loc + 1: loc + max_horizon + 1]
+    if not future_window.empty:
+        record[f"未来{max_horizon}日最大涨幅"] = safe_float(future_window["最高"].max()) / entry_price - 1
+        record[f"未来{max_horizon}日最大跌幅"] = safe_float(future_window["最低"].min()) / entry_price - 1
+    else:
+        record[f"未来{max_horizon}日最大涨幅"] = np.nan
+        record[f"未来{max_horizon}日最大跌幅"] = np.nan
+
+    return record
+
 def slug_value(value):
     if isinstance(value, float):
         value = f"{value:.4f}".rstrip("0").rstrip(".")
@@ -670,6 +932,7 @@ def build_output_bundle(best_params, stock_count, run_stamp=None, group_prefix=N
     base_name = f"{board_name}_{sample_slug}_{stock_slug}_{train_slug}_{test_slug}_{run_stamp}{scenario_suffix}"
     return output_dir, {
         "trade_history": os.path.join(output_dir, f"BlindTest_Trade_History_{base_name}.csv"),
+        "candidate_watch": os.path.join(output_dir, f"BlindTest_Candidate_Watch_{base_name}.csv"),
         "equity_curve": os.path.join(output_dir, f"BlindTest_Equity_Curve_{base_name}.csv"),
         "summary": os.path.join(output_dir, f"BlindTest_Summary_{base_name}.csv"),
         "html_report": os.path.join(output_dir, f"BlindTest_Report_{base_name}.html"),
@@ -863,7 +1126,308 @@ def build_reason_stats(trade_df):
         平均盈亏=("单笔净利", "mean"),
     ).reset_index().sort_values("盈亏合计")
 
-def generate_html_report(output_path, trade_df, equity_df, summary):
+def get_weak_signal_trades(trade_df):
+    if trade_df.empty or "信号日市场环境" not in trade_df.columns:
+        return pd.DataFrame()
+    return trade_df[trade_df["信号日市场环境"] == "弱"].copy()
+
+def build_weak_month_stats(trade_df):
+    weak_df = get_weak_signal_trades(trade_df)
+    if weak_df.empty or "买入月份" not in weak_df.columns:
+        return pd.DataFrame()
+    result = weak_df.groupby("买入月份").agg(
+        交易次数=("单笔净利", "size"),
+        盈亏合计=("单笔净利", "sum"),
+        胜率=("单笔净利", lambda s: (s > 0).mean()),
+        平均单笔盈亏=("单笔净利", "mean"),
+        平均盈亏率=("盈亏率", "mean"),
+        平均买入分数=("买入分数", "mean"),
+        平均信号日量比=("信号日量比", "mean"),
+        平均信号日距MA20=("信号日距MA20", "mean"),
+    ).reset_index().sort_values("盈亏合计")
+    return result
+
+def build_weak_reason_stats(trade_df):
+    weak_df = get_weak_signal_trades(trade_df)
+    if weak_df.empty:
+        return pd.DataFrame()
+    return weak_df.groupby("卖出原因").agg(
+        交易次数=("单笔净利", "size"),
+        盈亏合计=("单笔净利", "sum"),
+        胜率=("单笔净利", lambda s: (s > 0).mean()),
+        平均单笔盈亏=("单笔净利", "mean"),
+        平均盈亏率=("盈亏率", "mean"),
+        平均持仓天数=("持仓天数", "mean"),
+        平均买入分数=("买入分数", "mean"),
+        平均信号日量比=("信号日量比", "mean"),
+        平均信号日距MA20=("信号日距MA20", "mean"),
+    ).reset_index().sort_values("盈亏合计")
+
+def build_weak_score_bucket_stats(trade_df):
+    weak_df = get_weak_signal_trades(trade_df)
+    if weak_df.empty or "买入分数" not in weak_df.columns:
+        return pd.DataFrame()
+    df = weak_df.copy()
+    df["买入分数"] = pd.to_numeric(df["买入分数"], errors="coerce")
+    df["买入分数区间"] = pd.cut(
+        df["买入分数"],
+        bins=[-np.inf, 79, 84, np.inf],
+        labels=["78-79", "80-84", "85+"],
+        right=True,
+    )
+    return df.groupby("买入分数区间", observed=True).agg(
+        交易次数=("单笔净利", "size"),
+        盈亏合计=("单笔净利", "sum"),
+        胜率=("单笔净利", lambda s: (s > 0).mean()),
+        平均单笔盈亏=("单笔净利", "mean"),
+        平均盈亏率=("盈亏率", "mean"),
+        平均信号日量比=("信号日量比", "mean"),
+        平均信号日距MA20=("信号日距MA20", "mean"),
+        平均信号日RSI14=("信号日RSI14", "mean"),
+    ).reset_index()
+
+def build_weak_feature_compare(trade_df):
+    weak_df = get_weak_signal_trades(trade_df)
+    if weak_df.empty:
+        return pd.DataFrame()
+    df = weak_df.copy()
+    df["盈亏分组"] = np.where(df["单笔净利"] > 0, "盈利交易", "亏损交易")
+    return df.groupby("盈亏分组").agg(
+        交易次数=("单笔净利", "size"),
+        盈亏合计=("单笔净利", "sum"),
+        胜率=("单笔净利", lambda s: (s > 0).mean()),
+        平均单笔盈亏=("单笔净利", "mean"),
+        平均盈亏率=("盈亏率", "mean"),
+        平均持仓天数=("持仓天数", "mean"),
+        平均买入分数=("买入分数", "mean"),
+        平均排序分=("排序分", "mean"),
+        平均信号日市场MA20宽度=("信号日市场MA20宽度", "mean"),
+        平均信号日市场MA60宽度=("信号日市场MA60宽度", "mean"),
+        平均信号日RSI14=("信号日RSI14", "mean"),
+        平均信号日量比=("信号日量比", "mean"),
+        平均信号日20日均成交额=("信号日20日均成交额", "mean"),
+        平均信号日距MA20=("信号日距MA20", "mean"),
+        平均信号日距MA60=("信号日距MA60", "mean"),
+        信号日站上MA60占比=("信号日站上MA60", lambda s: pd.to_numeric(s, errors="coerce").mean()),
+        信号日MA60上行占比=("信号日MA60上行", lambda s: pd.to_numeric(s, errors="coerce").mean()),
+        信号日突破20日新高占比=("信号日突破20日新高", lambda s: pd.to_numeric(s, errors="coerce").mean()),
+    ).reset_index()
+
+def build_weak_stock_stats(trade_df, profit_side=False, limit=20):
+    weak_df = get_weak_signal_trades(trade_df)
+    if weak_df.empty:
+        return pd.DataFrame()
+    grouped = weak_df.groupby(["代码", "名称"]).agg(
+        交易次数=("单笔净利", "size"),
+        盈亏合计=("单笔净利", "sum"),
+        胜率=("单笔净利", lambda s: (s > 0).mean()),
+        平均单笔盈亏=("单笔净利", "mean"),
+        平均盈亏率=("盈亏率", "mean"),
+    ).reset_index()
+    return grouped.sort_values("盈亏合计", ascending=not profit_side).head(limit)
+
+def get_transition_weak_trades(trade_df):
+    if trade_df.empty or "信号日市场环境" not in trade_df.columns:
+        return pd.DataFrame()
+
+    df = trade_df.copy()
+    signal_regime = df["信号日市场环境"].fillna("")
+    sell_regime = df["卖出日市场环境"].fillna("") if "卖出日市场环境" in df.columns else ""
+    if "累计弱市持仓天数" in df.columns:
+        weak_days = pd.to_numeric(df["累计弱市持仓天数"], errors="coerce").fillna(0)
+    elif "卖出时连续弱市持仓天数" in df.columns:
+        weak_days = pd.to_numeric(df["卖出时连续弱市持仓天数"], errors="coerce").fillna(0)
+        df["累计弱市持仓天数"] = weak_days
+    else:
+        weak_days = pd.Series(0, index=df.index)
+        df["累计弱市持仓天数"] = weak_days
+
+    if "最大连续弱市持仓天数" not in df.columns:
+        df["最大连续弱市持仓天数"] = weak_days
+
+    return df[(signal_regime != "弱") & ((weak_days > 0) | (sell_regime == "弱"))].copy()
+
+def build_transition_weak_reason_stats(trade_df):
+    transition_df = get_transition_weak_trades(trade_df)
+    if transition_df.empty:
+        return pd.DataFrame()
+    return transition_df.groupby(["信号日市场环境", "卖出原因"]).agg(
+        交易次数=("单笔净利", "size"),
+        盈亏合计=("单笔净利", "sum"),
+        胜率=("单笔净利", lambda s: (s > 0).mean()),
+        平均单笔盈亏=("单笔净利", "mean"),
+        平均盈亏率=("盈亏率", "mean"),
+        平均持仓天数=("持仓天数", "mean"),
+        平均累计弱市持仓天数=("累计弱市持仓天数", "mean"),
+        平均最大连续弱市持仓天数=("最大连续弱市持仓天数", "mean"),
+    ).reset_index().sort_values("盈亏合计")
+
+def build_transition_weak_month_stats(trade_df):
+    transition_df = get_transition_weak_trades(trade_df)
+    if transition_df.empty or "买入月份" not in transition_df.columns:
+        return pd.DataFrame()
+    return transition_df.groupby("买入月份").agg(
+        交易次数=("单笔净利", "size"),
+        盈亏合计=("单笔净利", "sum"),
+        胜率=("单笔净利", lambda s: (s > 0).mean()),
+        平均单笔盈亏=("单笔净利", "mean"),
+        平均盈亏率=("盈亏率", "mean"),
+        平均买入分数=("买入分数", "mean"),
+        平均信号日市场MA20宽度=("信号日市场MA20宽度", "mean"),
+        平均信号日距MA20=("信号日距MA20", "mean"),
+        平均累计弱市持仓天数=("累计弱市持仓天数", "mean"),
+    ).reset_index().sort_values("盈亏合计")
+
+def build_transition_weak_feature_compare(trade_df):
+    transition_df = get_transition_weak_trades(trade_df)
+    if transition_df.empty:
+        return pd.DataFrame()
+    df = transition_df.copy()
+    df["盈亏分组"] = np.where(df["单笔净利"] > 0, "盈利交易", "亏损交易")
+    return df.groupby("盈亏分组").agg(
+        交易次数=("单笔净利", "size"),
+        盈亏合计=("单笔净利", "sum"),
+        胜率=("单笔净利", lambda s: (s > 0).mean()),
+        平均单笔盈亏=("单笔净利", "mean"),
+        平均盈亏率=("盈亏率", "mean"),
+        平均持仓天数=("持仓天数", "mean"),
+        平均买入分数=("买入分数", "mean"),
+        平均信号日市场MA20宽度=("信号日市场MA20宽度", "mean"),
+        平均信号日市场MA60宽度=("信号日市场MA60宽度", "mean"),
+        平均信号日量比=("信号日量比", "mean"),
+        平均信号日距MA20=("信号日距MA20", "mean"),
+        平均信号日距MA60=("信号日距MA60", "mean"),
+        平均累计弱市持仓天数=("累计弱市持仓天数", "mean"),
+        平均最大连续弱市持仓天数=("最大连续弱市持仓天数", "mean"),
+        信号日站上MA60占比=("信号日站上MA60", lambda s: pd.to_numeric(s, errors="coerce").mean()),
+        信号日MA60上行占比=("信号日MA60上行", lambda s: pd.to_numeric(s, errors="coerce").mean()),
+        信号日突破20日新高占比=("信号日突破20日新高", lambda s: pd.to_numeric(s, errors="coerce").mean()),
+    ).reset_index()
+
+def build_transition_weak_stock_stats(trade_df, profit_side=False, limit=20):
+    transition_df = get_transition_weak_trades(trade_df)
+    if transition_df.empty:
+        return pd.DataFrame()
+    grouped = transition_df.groupby(["代码", "名称"]).agg(
+        交易次数=("单笔净利", "size"),
+        盈亏合计=("单笔净利", "sum"),
+        胜率=("单笔净利", lambda s: (s > 0).mean()),
+        平均单笔盈亏=("单笔净利", "mean"),
+        平均盈亏率=("盈亏率", "mean"),
+        平均累计弱市持仓天数=("累计弱市持仓天数", "mean"),
+    ).reset_index()
+    return grouped.sort_values("盈亏合计", ascending=not profit_side).head(limit)
+
+def get_candidate_return_columns(candidate_watch_df):
+    if candidate_watch_df is None or candidate_watch_df.empty:
+        return []
+    return [col for col in candidate_watch_df.columns if col.startswith("未来") and col.endswith("日收益率")]
+
+def build_candidate_watch_overview(candidate_watch_df):
+    if candidate_watch_df is None or candidate_watch_df.empty:
+        return pd.DataFrame()
+
+    df = candidate_watch_df.copy()
+    for col in ["若非满仓也会高开跳过", "买入分数", "排序分", *get_candidate_return_columns(df)]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    rows = [{
+        "候选跟踪数": len(df),
+        "高开超限数": int(df["若非满仓也会高开跳过"].fillna(0).sum()) if "若非满仓也会高开跳过" in df.columns else 0,
+        "高开超限占比": df["若非满仓也会高开跳过"].fillna(0).mean() if "若非满仓也会高开跳过" in df.columns else 0,
+        "平均买入分数": df["买入分数"].mean() if "买入分数" in df.columns else np.nan,
+        "平均排序分": df["排序分"].mean() if "排序分" in df.columns else np.nan,
+    }]
+
+    for col in get_candidate_return_columns(df):
+        values = pd.to_numeric(df[col], errors="coerce").dropna()
+        if values.empty:
+            continue
+        prefix = col.replace("收益率", "")
+        rows[0][f"{prefix}平均收益率"] = values.mean()
+        rows[0][f"{prefix}中位收益率"] = values.median()
+        rows[0][f"{prefix}胜率"] = (values > 0).mean()
+    return pd.DataFrame(rows)
+
+def build_candidate_watch_regime_stats(candidate_watch_df):
+    if candidate_watch_df is None or candidate_watch_df.empty:
+        return pd.DataFrame()
+
+    df = candidate_watch_df.copy()
+    for col in ["若非满仓也会高开跳过", "买入分数", "排序分", *get_candidate_return_columns(df)]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    group_cols = [col for col in ["信号日市场环境", "计划买入日市场环境"] if col in df.columns]
+    if not group_cols:
+        return pd.DataFrame()
+
+    named_aggs = {
+        "候选跟踪数": ("代码", "size"),
+        "高开超限占比": ("若非满仓也会高开跳过", lambda s: s.fillna(0).mean()),
+        "平均买入分数": ("买入分数", "mean"),
+        "平均排序分": ("排序分", "mean"),
+    }
+    for col in get_candidate_return_columns(df):
+        prefix = col.replace("收益率", "")
+        named_aggs[f"{prefix}平均收益率"] = (col, "mean")
+        named_aggs[f"{prefix}胜率"] = (col, lambda s: (s > 0).mean())
+
+    return df.groupby(group_cols).agg(**named_aggs).reset_index().sort_values("候选跟踪数", ascending=False)
+
+def build_candidate_watch_score_bucket_stats(candidate_watch_df):
+    if candidate_watch_df is None or candidate_watch_df.empty or "买入分数" not in candidate_watch_df.columns:
+        return pd.DataFrame()
+
+    df = candidate_watch_df.copy()
+    df["买入分数"] = pd.to_numeric(df["买入分数"], errors="coerce")
+    for col in ["若非满仓也会高开跳过", "排序分", *get_candidate_return_columns(df)]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    df["买入分数区间"] = pd.cut(
+        df["买入分数"],
+        bins=[-np.inf, 74, 79, 84, np.inf],
+        labels=["70-74", "75-79", "80-84", "85+"],
+        right=True,
+    )
+    named_aggs = {
+        "候选跟踪数": ("代码", "size"),
+        "高开超限占比": ("若非满仓也会高开跳过", lambda s: s.fillna(0).mean()),
+        "平均排序分": ("排序分", "mean"),
+    }
+    for col in get_candidate_return_columns(df):
+        prefix = col.replace("收益率", "")
+        named_aggs[f"{prefix}平均收益率"] = (col, "mean")
+        named_aggs[f"{prefix}胜率"] = (col, lambda s: (s > 0).mean())
+    return df.groupby("买入分数区间", observed=True).agg(**named_aggs).reset_index()
+
+def select_candidate_watch_columns(df, sort_col):
+    preferred_cols = [
+        "代码", "名称", "信号日", "计划买入日", "信号日市场环境", "计划买入日市场环境",
+        "买入分数", "排序分", "计划买入开盘跳空", "若非满仓也会高开跳过",
+        "未来5日收益率", "未来10日收益率", "未来20日收益率", "未来20日最大涨幅", "未来20日最大跌幅",
+    ]
+    cols = [col for col in preferred_cols if col in df.columns]
+    if sort_col in df.columns and sort_col not in cols:
+        cols.append(sort_col)
+    return cols
+
+def build_candidate_watch_top_stats(candidate_watch_df, profit_side=True, limit=50):
+    if candidate_watch_df is None or candidate_watch_df.empty:
+        return pd.DataFrame()
+
+    df = candidate_watch_df.copy()
+    sort_col = "未来10日收益率" if "未来10日收益率" in df.columns else None
+    if sort_col is None:
+        return_cols = get_candidate_return_columns(df)
+        sort_col = return_cols[0] if return_cols else None
+    if sort_col is None:
+        return pd.DataFrame()
+
+    df[sort_col] = pd.to_numeric(df[sort_col], errors="coerce")
+    df = df.dropna(subset=[sort_col]).sort_values(sort_col, ascending=not profit_side).head(limit)
+    return df[select_candidate_watch_columns(df, sort_col)]
+
+def generate_html_report(output_path, trade_df, equity_df, summary, candidate_watch_df=None):
     summary_df = pd.DataFrame([summary])
     for pct_as_number_col in ["总收益率", "基准总收益率", "超额收益率"]:
         if pct_as_number_col in summary_df.columns:
@@ -873,6 +1437,22 @@ def generate_html_report(output_path, trade_df, equity_df, summary):
     yearly_diagnostic_df = build_yearly_diagnostic_stats(equity_df)
     regime_diagnostic_df = build_regime_diagnostic_stats(equity_df)
     reason_df = build_reason_stats(trade_df)
+    weak_month_df = build_weak_month_stats(trade_df)
+    weak_reason_df = build_weak_reason_stats(trade_df)
+    weak_score_bucket_df = build_weak_score_bucket_stats(trade_df)
+    weak_feature_compare_df = build_weak_feature_compare(trade_df)
+    weak_loss_stock_df = build_weak_stock_stats(trade_df, profit_side=False)
+    weak_profit_stock_df = build_weak_stock_stats(trade_df, profit_side=True)
+    transition_weak_reason_df = build_transition_weak_reason_stats(trade_df)
+    transition_weak_month_df = build_transition_weak_month_stats(trade_df)
+    transition_weak_feature_df = build_transition_weak_feature_compare(trade_df)
+    transition_weak_loss_stock_df = build_transition_weak_stock_stats(trade_df, profit_side=False)
+    transition_weak_profit_stock_df = build_transition_weak_stock_stats(trade_df, profit_side=True)
+    candidate_watch_overview_df = build_candidate_watch_overview(candidate_watch_df)
+    candidate_watch_regime_df = build_candidate_watch_regime_stats(candidate_watch_df)
+    candidate_watch_score_df = build_candidate_watch_score_bucket_stats(candidate_watch_df)
+    candidate_watch_top_df = build_candidate_watch_top_stats(candidate_watch_df, profit_side=True)
+    candidate_watch_worst_df = build_candidate_watch_top_stats(candidate_watch_df, profit_side=False)
 
     trade_display = trade_df.copy()
     if not trade_display.empty and "代码" in trade_display.columns:
@@ -885,11 +1465,24 @@ def generate_html_report(output_path, trade_df, equity_df, summary):
         "买入耗资", "卖出净额", "单笔净利", "卖出后现金",
         "年度已实现盈亏", "平均单笔盈亏", "最大单笔盈利", "最大单笔亏损",
         "年初权益", "年末权益", "年度权益盈亏", "盈亏合计", "平均盈亏",
-        "盈亏贡献",
+        "盈亏贡献", "平均信号日20日均成交额", "平均单笔盈亏",
     }
     pct_cols = {
         "总收益率", "基准总收益率", "超额收益率", "最大回撤", "基准最大回撤",
-        "胜率", "年度收益率", "年度最大回撤", "盈亏率", "平均股票仓位", "空仓占比", "最大入场偏离MA20", "回撤止盈启动收益", "回撤止盈回撤比例",
+        "胜率", "年度收益率", "年度最大回撤", "盈亏率", "平均盈亏率", "平均股票仓位", "空仓占比",
+        "最大入场偏离MA20", "回撤止盈启动收益", "回撤止盈回撤比例",
+        "转弱持仓退出最高收益",
+        "信号日市场MA20宽度", "信号日市场MA60宽度", "信号日市场MA60上行宽度",
+        "信号日距MA20", "信号日距MA60", "买入日市场MA20宽度", "买入日市场MA60宽度",
+        "买入日开盘跳空", "买入日开盘距MA20",
+        "计划买入开盘跳空", "高开超限占比",
+        "未来5日收益率", "未来10日收益率", "未来20日收益率", "未来20日最大涨幅", "未来20日最大跌幅",
+        "未来5日平均收益率", "未来10日平均收益率", "未来20日平均收益率",
+        "未来5日中位收益率", "未来10日中位收益率", "未来20日中位收益率",
+        "未来5日胜率", "未来10日胜率", "未来20日胜率",
+        "平均信号日市场MA20宽度", "平均信号日市场MA60宽度",
+        "平均信号日距MA20", "平均信号日距MA60",
+        "信号日站上MA60占比", "信号日MA60上行占比", "信号日突破20日新高占比",
     }
 
     def kind_map(df):
@@ -962,6 +1555,54 @@ def generate_html_report(output_path, trade_df, equity_df, summary):
   <h2>卖出原因统计</h2>
   {dataframe_to_html_table(reason_df, "reason-stats", kind_map(reason_df))}
 
+  <h2>弱市买入月份诊断</h2>
+  {dataframe_to_html_table(weak_month_df, "weak-month-stats", kind_map(weak_month_df))}
+
+  <h2>弱市卖出原因诊断</h2>
+  {dataframe_to_html_table(weak_reason_df, "weak-reason-stats", kind_map(weak_reason_df))}
+
+  <h2>弱市买入分数区间诊断</h2>
+  {dataframe_to_html_table(weak_score_bucket_df, "weak-score-stats", kind_map(weak_score_bucket_df))}
+
+  <h2>弱市盈利组 vs 亏损组</h2>
+  {dataframe_to_html_table(weak_feature_compare_df, "weak-feature-compare", kind_map(weak_feature_compare_df))}
+
+  <h2>弱市亏损股票 Top20</h2>
+  {dataframe_to_html_table(weak_loss_stock_df, "weak-loss-stocks", kind_map(weak_loss_stock_df))}
+
+  <h2>弱市盈利股票 Top20</h2>
+  {dataframe_to_html_table(weak_profit_stock_df, "weak-profit-stocks", kind_map(weak_profit_stock_df))}
+
+  <h2>非弱市入场后经历弱市：卖出原因诊断</h2>
+  {dataframe_to_html_table(transition_weak_reason_df, "transition-weak-reason-stats", kind_map(transition_weak_reason_df))}
+
+  <h2>非弱市入场后经历弱市：买入月份诊断</h2>
+  {dataframe_to_html_table(transition_weak_month_df, "transition-weak-month-stats", kind_map(transition_weak_month_df))}
+
+  <h2>非弱市入场后经历弱市：盈利组 vs 亏损组</h2>
+  {dataframe_to_html_table(transition_weak_feature_df, "transition-weak-feature-compare", kind_map(transition_weak_feature_df))}
+
+  <h2>非弱市入场后经历弱市：亏损股票 Top20</h2>
+  {dataframe_to_html_table(transition_weak_loss_stock_df, "transition-weak-loss-stocks", kind_map(transition_weak_loss_stock_df))}
+
+  <h2>非弱市入场后经历弱市：盈利股票 Top20</h2>
+  {dataframe_to_html_table(transition_weak_profit_stock_df, "transition-weak-profit-stocks", kind_map(transition_weak_profit_stock_df))}
+
+  <h2>未买入候选股跟踪：总体</h2>
+  {dataframe_to_html_table(candidate_watch_overview_df, "candidate-watch-overview", kind_map(candidate_watch_overview_df))}
+
+  <h2>未买入候选股跟踪：市场环境</h2>
+  {dataframe_to_html_table(candidate_watch_regime_df, "candidate-watch-regime", kind_map(candidate_watch_regime_df))}
+
+  <h2>未买入候选股跟踪：分数区间</h2>
+  {dataframe_to_html_table(candidate_watch_score_df, "candidate-watch-score", kind_map(candidate_watch_score_df))}
+
+  <h2>未买入候选股：未来10日最强 Top50</h2>
+  {dataframe_to_html_table(candidate_watch_top_df, "candidate-watch-top", kind_map(candidate_watch_top_df))}
+
+  <h2>未买入候选股：未来10日最弱 Top50</h2>
+  {dataframe_to_html_table(candidate_watch_worst_df, "candidate-watch-worst", kind_map(candidate_watch_worst_df))}
+
   <h2>概要参数</h2>
   {dataframe_to_html_table(summary_df, "summary", kind_map(summary_df))}
 
@@ -1030,6 +1671,7 @@ def build_blind_summary(blind_res, benchmark_kpi, best_params, stock_count, scen
     board_profile = get_board_profile()
     trade_df = blind_res["交易明细"]
     equity_df = blind_res["权益曲线"]
+    candidate_watch_df = blind_res.get("候选跟踪", pd.DataFrame())
     risk_stats = blind_res["风控统计"]
 
     initial_capital = CONFIG["INITIAL_CAPITAL"]
@@ -1046,12 +1688,14 @@ def build_blind_summary(blind_res, benchmark_kpi, best_params, stock_count, scen
     empty_position_ratio = empty_position_days / len(equity_df) if not equity_df.empty else 0
     signal_total = int(equity_df["当日信号数"].sum()) if "当日信号数" in equity_df.columns and not equity_df.empty else 0
     executed_buy_total = int(equity_df["当日买入数"].sum()) if "当日买入数" in equity_df.columns and not equity_df.empty else 0
+    candidate_watch_total = len(candidate_watch_df) if candidate_watch_df is not None and not candidate_watch_df.empty else 0
 
     summary = {
         "运行时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "板块": CONFIG["TARGET_BOARD"],
         "板块名称": board_profile["name"],
         "抽样上限": CONFIG.get("MAX_STOCKS_PER_BOARD") if CONFIG.get("MAX_STOCKS_PER_BOARD") is not None else "全部",
+        "抽样种子": CONFIG.get("POOL_SAMPLE_SEED", ""),
         "实际股票数量": stock_count,
         "训练开始": CONFIG["TRAIN_START"],
         "训练结束": CONFIG["TRAIN_END"],
@@ -1083,6 +1727,7 @@ def build_blind_summary(blind_res, benchmark_kpi, best_params, stock_count, scen
         "空仓占比": empty_position_ratio,
         "扫描信号总数": signal_total,
         "实际买入次数": executed_buy_total,
+        "未买入候选跟踪数": candidate_watch_total,
         "高开跳过次数": risk_stats["高开跳过次数"],
         "资金不足跳过次数": risk_stats["资金不足跳过次数"],
         "持仓上限跳过次数": risk_stats["持仓上限跳过次数"],
@@ -1099,6 +1744,11 @@ def build_blind_summary(blind_res, benchmark_kpi, best_params, stock_count, scen
         "最低20日均成交额": CONFIG["MIN_AVG_AMOUNT_20"],
         "破位确认天数": CONFIG["BREAKDOWN_CONFIRM_DAYS"],
         "强市破位确认天数": CONFIG["STRONG_BREAKDOWN_CONFIRM_DAYS"],
+        "弱市破位确认天数": CONFIG["WEAK_BREAKDOWN_CONFIRM_DAYS"],
+        "启用转弱持仓退出": CONFIG["ENABLE_WEAK_HOLDING_EXIT"],
+        "转弱持仓退出天数": CONFIG["WEAK_HOLDING_EXIT_DAYS"],
+        "转弱持仓退出最高收益": CONFIG["WEAK_HOLDING_EXIT_MAX_RETURN"],
+        "仅处理非弱市入场持仓": CONFIG["WEAK_HOLDING_EXIT_ONLY_NON_WEAK_ENTRY"],
         "回撤止盈启动收益": CONFIG["TRAIL_PROFIT_TRIGGER"],
         "回撤止盈回撤比例": CONFIG["TRAIL_DRAWDOWN_RATE"],
         "启用亢奋止盈": CONFIG["ENABLE_EXCITEMENT_TAKE_PROFIT"],
@@ -1142,14 +1792,17 @@ def save_blind_outputs(best_params, stock_count, blind_res, benchmark_kpi, scena
     )
     trade_df = blind_res["交易明细"]
     equity_df = blind_res["权益曲线"]
+    candidate_watch_df = blind_res.get("候选跟踪", pd.DataFrame())
     summary = build_blind_summary(blind_res, benchmark_kpi, best_params, stock_count, scenario)
 
     if not trade_df.empty:
         trade_df.to_csv(output_paths["trade_history"], index=False, encoding="utf-8-sig")
+    if candidate_watch_df is not None and not candidate_watch_df.empty:
+        candidate_watch_df.to_csv(output_paths["candidate_watch"], index=False, encoding="utf-8-sig")
     if not equity_df.empty:
         equity_df.to_csv(output_paths["equity_curve"], encoding="utf-8-sig")
     pd.DataFrame([summary]).to_csv(output_paths["summary"], index=False, encoding="utf-8-sig")
-    generate_html_report(output_paths["html_report"], trade_df, equity_df, summary)
+    generate_html_report(output_paths["html_report"], trade_df, equity_df, summary, candidate_watch_df)
 
     return summary, output_dir, output_paths
 
@@ -1169,10 +1822,12 @@ def print_blind_summary(summary, output_dir, output_paths):
     print(f"▶ 基准回撤 : {summary['基准最大回撤']*100:.2f}% | 基准Calmar: {summary['基准Calmar']:.2f} | 基准Sharpe: {summary['基准Sharpe']:.2f}")
     print(f"▶ 交易次数 : {summary['交易次数']}")
     print(f"▶ 参与度 : 平均股票仓位 {summary['平均股票仓位']*100:.2f}% | 平均持仓 {summary['平均持仓数']:.2f} 只 | 空仓 {summary['空仓天数']} 天 ({summary['空仓占比']*100:.2f}%)")
-    print(f"▶ 信号漏斗 : 扫描信号 {summary['扫描信号总数']} 个 | 实际买入 {summary['实际买入次数']} 次 | 高开跳过 {summary['高开跳过次数']} 次 | 持仓上限跳过 {summary['持仓上限跳过次数']} 次")
+    print(f"▶ 信号漏斗 : 扫描信号 {summary['扫描信号总数']} 个 | 实际买入 {summary['实际买入次数']} 次 | 未买入候选跟踪 {summary['未买入候选跟踪数']} 条 | 高开跳过 {summary['高开跳过次数']} 次 | 持仓上限跳过 {summary['持仓上限跳过次数']} 次")
     print(f"▶ 风控介入 : 连续亏损暂停 {summary['连续亏损暂停次数']} 次 | 回撤暂停 {summary['回撤暂停次数']} 次 | 暂停开仓 {summary['暂停开仓天数']} 天")
     print(f"▶ 市场分级 : 强 {summary['强市场天数']} 天 | 中 {summary['中性市场天数']} 天 | 弱 {summary['弱市场天数']} 天")
     print(f"▶ 结果目录 : {output_dir}")
+    if summary.get("未买入候选跟踪数", 0) > 0 and output_paths.get("candidate_watch"):
+        print(f"▶ 候选跟踪 : {output_paths['candidate_watch']}")
     print(f"▶ HTML报告 : {output_paths['html_report']}")
     print("="*58)
 
@@ -1193,6 +1848,9 @@ def build_ablation_compare_row(scenario, summary, blind_res, output_dir):
         "场景": scenario["name"],
         "说明": scenario["description"],
         "参数组合": summary["最优参数"],
+        "抽样上限": summary["抽样上限"],
+        "抽样种子": summary["抽样种子"],
+        "实际股票数量": summary["实际股票数量"],
         "总收益率": summary["总收益率"] / 100,
         "超额收益率": summary["超额收益率"] / 100,
         "最大回撤": summary["最大回撤"],
@@ -1205,6 +1863,11 @@ def build_ablation_compare_row(scenario, summary, blind_res, output_dir):
         "最大入场偏离MA20": summary["最大入场偏离MA20"],
         "破位确认天数": summary["破位确认天数"],
         "强市破位确认天数": summary["强市破位确认天数"],
+        "弱市破位确认天数": summary["弱市破位确认天数"],
+        "启用转弱持仓退出": summary["启用转弱持仓退出"],
+        "转弱持仓退出天数": summary["转弱持仓退出天数"],
+        "转弱持仓退出最高收益": summary["转弱持仓退出最高收益"],
+        "仅处理非弱市入场持仓": summary["仅处理非弱市入场持仓"],
         "回撤止盈启动收益": summary["回撤止盈启动收益"],
         "回撤止盈回撤比例": summary["回撤止盈回撤比例"],
         "启用亢奋止盈": summary["启用亢奋止盈"],
@@ -1215,6 +1878,7 @@ def build_ablation_compare_row(scenario, summary, blind_res, output_dir):
         "弱市专用止损阈值": summary["弱市专用止损阈值"],
         "扫描信号总数": summary["扫描信号总数"],
         "实际买入次数": summary["实际买入次数"],
+        "未买入候选跟踪数": summary["未买入候选跟踪数"],
         "持仓上限跳过次数": summary["持仓上限跳过次数"],
         "强市盈亏贡献": regime_value("强", "盈亏贡献"),
         "中性盈亏贡献": regime_value("中", "盈亏贡献"),
@@ -1227,7 +1891,7 @@ def build_ablation_compare_row(scenario, summary, blind_res, output_dir):
 
 def generate_ablation_compare_report(output_path, compare_df, title="消融对照测试汇总"):
     money_cols = {"强市盈亏贡献", "中性盈亏贡献", "弱市盈亏贡献"}
-    pct_cols = {"总收益率", "超额收益率", "最大回撤", "平均股票仓位", "空仓占比", "最大入场偏离MA20", "回撤止盈启动收益", "回撤止盈回撤比例", "弱市单票仓位倍率", "弱市专用止损阈值", "强市平均仓位", "中性平均仓位", "弱市平均仓位"}
+    pct_cols = {"总收益率", "超额收益率", "最大回撤", "平均股票仓位", "空仓占比", "最大入场偏离MA20", "回撤止盈启动收益", "回撤止盈回撤比例", "弱市单票仓位倍率", "弱市专用止损阈值", "转弱持仓退出最高收益", "强市平均仓位", "中性平均仓位", "弱市平均仓位"}
     column_kinds = {col: "money" for col in compare_df.columns if col in money_cols}
     column_kinds.update({col: "pct" for col in compare_df.columns if col in pct_cols})
     html_content = f"""<!doctype html>
@@ -1370,6 +2034,82 @@ def run_param_rechecks(training_results, market_data, stock_pool, benchmark_data
     print("="*58)
     return compare_df, compare_csv, compare_html, selected_params
 
+def run_stability_validation():
+    board_profile = get_board_profile()
+    fixed_params = dict(CONFIG.get("STABILITY_FIXED_PARAMS") or CONFIG.get("ABLATION_FIXED_PARAMS") or {})
+    if not fixed_params:
+        raise ValueError("稳定性验证需要配置 STABILITY_FIXED_PARAMS 或 ABLATION_FIXED_PARAMS")
+
+    run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    benchmark_data = load_benchmark_data()
+    benchmark_kpi = calc_benchmark_kpi(benchmark_data, CONFIG["TEST_START"], CONFIG["TEST_END"])
+    compare_rows = []
+    param_slug = build_param_slug(fixed_params)
+    compare_dir = os.path.join(CONFIG["OUTPUT_ROOT"], CONFIG["TARGET_BOARD"], param_slug, f"stability_compare_{run_stamp}")
+    os.makedirs(compare_dir, exist_ok=True)
+
+    print(f"==================== 【稳定性验证 ({CONFIG['TARGET_BOARD']} - {board_profile['name']})】 ====================")
+    print(f"[*] 固定主策略参数: {fixed_params}")
+    print("[*] 本阶段不重新训练、不重新挑参数，只验证同一策略在不同股票池上的表现。")
+
+    for scenario in STABILITY_SCENARIOS:
+        if not scenario.get("enabled", True):
+            print(f"\n[-] 跳过稳定性场景 {scenario['name']}：enabled=False")
+            continue
+
+        print(f"\n[*] 稳定性场景 {scenario['name']}：{scenario['description']}")
+        previous_values = apply_config_overrides(scenario.get("overrides", {}))
+        try:
+            market_data, stock_pool = load_all_market_data()
+            if len(stock_pool) < 30:
+                print(f"[!] 警告：当前场景有效股票数只有 {len(stock_pool)} 只，结果参考意义较弱。")
+            market_context = build_market_context(benchmark_data, market_data)
+            blind_res = execute_single_backtest(
+                fixed_params,
+                market_data,
+                stock_pool,
+                benchmark_data,
+                market_context,
+                CONFIG["TEST_START"],
+                CONFIG["TEST_END"],
+            )
+            summary, output_dir, output_paths = save_blind_outputs(
+                fixed_params,
+                len(stock_pool),
+                blind_res,
+                benchmark_kpi,
+                scenario=scenario,
+                run_stamp=run_stamp,
+                group_prefix="stability",
+            )
+            print_blind_summary(summary, output_dir, output_paths)
+            compare_rows.append(build_ablation_compare_row(scenario, summary, blind_res, output_dir))
+        finally:
+            restore_config_overrides(previous_values)
+
+    compare_df = pd.DataFrame(compare_rows)
+    if not compare_df.empty:
+        compare_csv = os.path.join(compare_dir, f"Stability_Compare_{CONFIG['TARGET_BOARD']}_{run_stamp}.csv")
+        compare_html = os.path.join(compare_dir, f"Stability_Compare_{CONFIG['TARGET_BOARD']}_{run_stamp}.html")
+        compare_df.to_csv(compare_csv, index=False, encoding="utf-8-sig")
+        generate_ablation_compare_report(compare_html, compare_df, title="稳定性验证汇总")
+
+        print("\n" + "="*58)
+        print("          【稳定性验证汇总】          ")
+        print("="*58)
+        print(compare_df[["场景", "抽样上限", "抽样种子", "实际股票数量", "总收益率", "超额收益率", "最大回撤", "Calmar", "Sharpe", "平均股票仓位", "未买入候选跟踪数", "强市盈亏贡献", "中性盈亏贡献", "弱市盈亏贡献"]].to_string(index=False, formatters={
+            "总收益率": lambda x: f"{x*100:+.2f}%",
+            "超额收益率": lambda x: f"{x*100:+.2f}%",
+            "最大回撤": lambda x: f"{x*100:.2f}%",
+            "平均股票仓位": lambda x: f"{x*100:.2f}%",
+            "强市盈亏贡献": lambda x: f"{x:+,.2f}",
+            "中性盈亏贡献": lambda x: f"{x:+,.2f}",
+            "弱市盈亏贡献": lambda x: f"{x:+,.2f}",
+        }))
+        print(f"▶ 稳定性CSV : {compare_csv}")
+        print(f"▶ 稳定性HTML: {compare_html}")
+        print("="*58)
+
 # ==================== 2. 核心考核模块 ====================
 def calc_kpi(price_series):
     if price_series.empty or len(price_series) < 2:
@@ -1429,7 +2169,7 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
     max_position_per_stock = board_profile.get("max_position_per_stock", CONFIG["MAX_POSITION_PER_STOCK"])
 
     cash = CONFIG["INITIAL_CAPITAL"]
-    portfolio, trade_history, daily_equity = {}, [], []
+    portfolio, trade_history, daily_equity, candidate_watch = {}, [], [], []
     risk_stats = {
         "连续亏损暂停次数": 0,
         "回撤暂停次数": 0,
@@ -1489,7 +2229,12 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
                     "名称": stock_pool.get(symbol, "未知"),
                     "买入日": buy_date_str,
                     "卖出日": sell_date_str,
+                    "买入月份": portfolio[symbol]["buy_date"].strftime("%Y-%m"),
+                    "卖出日市场环境": regime_controls["regime"],
                     "持仓天数": portfolio[symbol]["days"],
+                    "卖出时连续弱市持仓天数": portfolio[symbol].get("weak_regime_days", 0),
+                    "累计弱市持仓天数": portfolio[symbol].get("total_weak_regime_days", 0),
+                    "最大连续弱市持仓天数": portfolio[symbol].get("max_weak_regime_days", 0),
                     "买入数量": shares,
                     "买入价": round(portfolio[symbol]["cost"], 3),
                     "卖出价": round(exec_price, 3),
@@ -1500,7 +2245,8 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
                     "买入分数": portfolio[symbol].get("buy_score", ""),
                     "排序分": round(portfolio[symbol].get("rank_score", portfolio[symbol].get("buy_score", 0)), 2),
                     "卖出原因": reason,
-                    "卖出后现金": round(cash, 2)
+                    "卖出后现金": round(cash, 2),
+                    **portfolio[symbol].get("entry_snapshot", {}),
                 })
                 del portfolio[symbol]
 
@@ -1523,11 +2269,27 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
             pending_buys.clear()
         else:
             pending_buys.sort(key=lambda x: x[2], reverse=True)
-            for buy_idx, (symbol, score, rank_score, prev_close) in enumerate(pending_buys):
+            for buy_idx, (symbol, score, rank_score, prev_close, signal_snapshot) in enumerate(pending_buys):
                 if len(portfolio) >= regime_controls["max_holdings"]:
                     skipped_by_limit = len(pending_buys) - buy_idx
                     day_limit_skip_count += skipped_by_limit
                     risk_stats["持仓上限跳过次数"] += skipped_by_limit
+                    for skipped_symbol, skipped_score, skipped_rank_score, skipped_prev_close, skipped_snapshot in pending_buys[buy_idx:]:
+                        watch_record = build_candidate_watch_record(
+                            skipped_symbol,
+                            skipped_score,
+                            skipped_rank_score,
+                            skipped_prev_close,
+                            skipped_snapshot,
+                            current_date,
+                            market_data,
+                            stock_pool,
+                            market_context,
+                            len(portfolio),
+                            regime_controls["max_holdings"],
+                        )
+                        if watch_record is not None:
+                            candidate_watch.append(watch_record)
                     break
                 if symbol in portfolio or current_date not in market_data[symbol].index: continue
 
@@ -1546,6 +2308,8 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
                     commission_buy = max(CONFIG["MIN_COMMISSION"], cost * CONFIG["COMMISSION_RATE"])
                     total_invested = cost + commission_buy
                     cash -= total_invested
+                    entry_snapshot = dict(signal_snapshot)
+                    entry_snapshot.update(build_execution_snapshot(market_data[symbol], current_date, prev_close, market_context))
 
                     portfolio[symbol] = {
                         "shares": shares_to_buy,
@@ -1556,6 +2320,10 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
                         "invested": total_invested,
                         "buy_score": score,
                         "rank_score": rank_score,
+                        "entry_snapshot": entry_snapshot,
+                        "weak_regime_days": 0,
+                        "total_weak_regime_days": 0,
+                        "max_weak_regime_days": 0,
                     }
                     day_executed_buy_count += 1
                     risk_stats["实际买入次数"] += 1
@@ -1569,6 +2337,12 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
             if current_date not in market_data[symbol].index: continue
             today_k = market_data[symbol].loc[current_date]
             pos["days"] += 1
+            if regime_controls["regime"] == "弱":
+                pos["weak_regime_days"] = pos.get("weak_regime_days", 0) + 1
+                pos["total_weak_regime_days"] = pos.get("total_weak_regime_days", 0) + 1
+                pos["max_weak_regime_days"] = max(pos.get("max_weak_regime_days", 0), pos["weak_regime_days"])
+            else:
+                pos["weak_regime_days"] = 0
             pos["highest"] = max(pos["highest"], today_k["收盘"])
             return_rate = (today_k["收盘"] - pos["cost"]) / pos["cost"]
             effective_stop_loss_rate = stop_loss_rate
@@ -1580,6 +2354,8 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
                 sell_reason = "绝对止损"
             elif is_ma20_breakdown(market_data[symbol], current_date, regime_controls["regime"]):
                 sell_reason = "破位防守"
+            elif should_trigger_weak_holding_exit(pos, return_rate, regime_controls["regime"]):
+                sell_reason = "转弱持仓退出"
             elif pos["highest"] >= pos["cost"] * (1 + CONFIG["TRAIL_PROFIT_TRIGGER"]) and today_k["收盘"] <= pos["highest"] * (1 - CONFIG["TRAIL_DRAWDOWN_RATE"]):
                 sell_reason = "回撤止盈"
             elif CONFIG["ENABLE_EXCITEMENT_TAKE_PROFIT"] and return_rate > 0.15 and today_k["RSI14"] > rsi_oversold:
@@ -1639,7 +2415,8 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
                     rank_score = calculate_candidate_rank_score(today_k, recent_5, score)
                     if rank_score is None:
                         continue
-                    pending_buys.append((symbol, score, rank_score, today_k["收盘"]))
+                    signal_snapshot = build_signal_snapshot(symbol, df, current_date, market_context)
+                    pending_buys.append((symbol, score, rank_score, today_k["收盘"], signal_snapshot))
                     day_signal_count += 1
                     risk_stats["扫描信号总数"] += 1
 
@@ -1669,12 +2446,17 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
 
     kpi_res["参数组合"] = params
     kpi_res["交易明细"] = pd.DataFrame(trade_history)
+    kpi_res["候选跟踪"] = pd.DataFrame(candidate_watch)
     kpi_res["权益曲线"] = df_equity
     kpi_res["风控统计"] = risk_stats
     return kpi_res
 
 # ==================== 4. 总控与寻优调度器 ====================
 def run_optimization_and_blind_test():
+    if CONFIG.get("ENABLE_STABILITY_TESTS", False):
+        run_stability_validation()
+        return
+
     board_profile = get_board_profile()
     print(f"==================== 【阶段一：下载/加载数据 (当前开关: {CONFIG['TARGET_BOARD']} - {board_profile['name']})】 ====================")
     market_data, stock_pool = load_all_market_data()
@@ -1713,6 +2495,10 @@ def run_optimization_and_blind_test():
         else:
             print(f"\n[*] 后续消融测试继续使用训练 Top1 参数: {ablation_params}")
 
+    if CONFIG.get("ABLATION_FIXED_PARAMS"):
+        ablation_params = dict(CONFIG["ABLATION_FIXED_PARAMS"])
+        print(f"\n[*] 消融测试已锁定固定参数: {ablation_params}")
+
     if CONFIG.get("ENABLE_ABLATION_TESTS", False):
         print("\n==================== 【阶段三：消融对照测试】 ====================")
         print(f"[*] 消融测试使用参数: {ablation_params}")
@@ -1722,10 +2508,12 @@ def run_optimization_and_blind_test():
         for scenario in ABLATION_SCENARIOS:
             print(f"\n[*] 消融场景 {scenario['name']}：{scenario['description']}")
             previous_values = apply_config_overrides(scenario.get("overrides", {}))
+            scenario_params = dict(ablation_params)
+            scenario_params.update(scenario.get("param_overrides", {}))
             try:
-                blind_res = execute_single_backtest(ablation_params, market_data, stock_pool, benchmark_data, market_context, CONFIG["TEST_START"], CONFIG["TEST_END"])
+                blind_res = execute_single_backtest(scenario_params, market_data, stock_pool, benchmark_data, market_context, CONFIG["TEST_START"], CONFIG["TEST_END"])
                 summary, output_dir, output_paths = save_blind_outputs(
-                    ablation_params,
+                    scenario_params,
                     len(stock_pool),
                     blind_res,
                     benchmark_kpi,
