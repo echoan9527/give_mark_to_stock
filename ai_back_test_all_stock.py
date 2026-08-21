@@ -3,7 +3,7 @@ Author: Chengya
 Description: Description
 Date: 2026-08-10 22:47:56
 LastEditors: Chengya
-LastEditTime: 2026-08-14 11:32:14
+LastEditTime: 2026-08-20 15:02:38
 '''
 '''
 Author: Chengya (程永安)
@@ -41,11 +41,23 @@ CONFIG = {
     "COMMISSION_RATE": 0.00025,
     "MIN_COMMISSION": 5.0,
     "TAX_RATE": 0.0005,
+    # "TRAIN_START": "20210101",#训练数据 开始时间
+    # "TRAIN_END": "20231231", # 训练数据 结束时间
+    # "TEST_START": "20240101",# 回测数据 开始时间
+    # "TEST_END": "20260809",# 回测数据 结束时间
+
     "TRAIN_START": "20210101",#训练数据 开始时间
-    "TRAIN_END": "20231231", # 训练数据 结束时间
-    "TEST_START": "20240101",# 回测数据 开始时间
+    "TRAIN_END": "20221231", # 训练数据 结束时间
+    "TEST_START": "20230101",# 回测数据 开始时间
     "TEST_END": "20260809",# 回测数据 结束时间
-    "SLIPPAGE_RATE": 0.002,
+
+    "SLIPPAGE_RATE": 0.002, # 单边滑点，0.002 表示买入贵 0.2%、卖出便宜 0.2%
+    "BUY_EXECUTION_DELAY_DAYS": 1,  # 买入执行延迟：1 表示信号日后下一交易日开盘买入，2 表示再慢一天
+    "SELL_EXECUTION_DELAY_DAYS": 1, # 卖出执行延迟：1 表示卖出信号后下一交易日开盘卖出，2 表示再慢一天
+    "REVALIDATE_DELAYED_BUY_SIGNAL": False, # 买入延迟超过 1 天时，是否要求执行前一晚信号仍然有效；避免追买过期信号
+    "MAX_DELAYED_BUY_GAP_FROM_SIGNAL_CLOSE": None, # 买入延迟超过 1 天时，相对原信号日收盘最多允许上涨多少；None 表示不额外限制
+    "MAX_DELAYED_BUY_GAP_FROM_FIRST_OPEN": None,   # 买入延迟超过 1 天时，相对原计划买入日开盘最多允许上涨多少；用于判断错过后是否买贵
+    "REQUIRE_DELAYED_BUY_ABOVE_MA20": False,       # 买入延迟超过 1 天时，是否要求执行日开盘仍站上 MA20；避免延迟后形态已走坏仍买入
 
     # ==========================================
     # 🎯 核心板块开关 (Market Filter)
@@ -111,7 +123,11 @@ CONFIG = {
 
     # 候选排序：不改变是否入选，只改变多个候选同时出现时优先买谁。
     "ENABLE_CANDIDATE_RANKING": False,     # 是否启用候选排序分；关闭时继续按原始买入分排序
+    "CANDIDATE_RANKING_REGIMES": None,     # 候选排序适用的市场环境列表；None 表示全部环境，["强"] 表示只在强市排序
+    "RANK_PRIMARY_SCORE_BAND": None,       # 原始买入分数分档宽度；None 表示排序分直接主导，5 表示原始分同一 5 分档内才用排序分
     "MAX_ENTRY_DISTANCE_MA20": None,       # 入场日收盘价距离 MA20 的最大比例；None 表示不做硬过滤
+    "STRONG_MAX_ENTRY_DISTANCE_MA20": None, # 强市场专用：收盘价距离 MA20 超过该比例时不买，主要防止强市里追高假突破
+    "STRONG_MAX_ENTRY_VOLUME_RATIO": None, # 强市场专用：量比超过该值时不买，主要过滤短线情绪过热后的冲高回落
     "RANK_WEIGHT_TREND": 12,               # 趋势质量排序权重，偏好均线多头且 MA20 上行的股票
     "RANK_WEIGHT_LIQUIDITY": 8,            # 流动性排序权重，偏好成交额更充足、实盘更容易成交的股票
     "RANK_WEIGHT_BREAKOUT": 10,            # 突破质量排序权重，偏好刚突破但不极端追高的股票
@@ -124,7 +140,7 @@ CONFIG = {
     "STABILITY_FIXED_PARAMS": {            # 稳定性验证固定使用的主策略参数；避免在盲测期反复挑参数造成过拟合
         "BUY_SCORE_THRESHOLD": 70,
         "STOP_LOSS_RATE": -0.09,
-        "MAX_HOLD_DAYS": 10,
+        "MAX_HOLD_DAYS": 20,
         "RSI_OVERSOLD": 80,
         "TIME_SUNK_TOLERANCE": 0.03,
     },
@@ -134,43 +150,378 @@ CONFIG = {
     "ABLATION_FIXED_PARAMS": {             # 消融实验锁定使用的参数；避免复验赢家变化导致实验基准漂移
         "BUY_SCORE_THRESHOLD": 70,
         "STOP_LOSS_RATE": -0.09,
-        "MAX_HOLD_DAYS": 10,
+        "MAX_HOLD_DAYS": 20,
         "RSI_OVERSOLD": 80,
         "TIME_SUNK_TOLERANCE": 0.03,
     },
     "ENABLE_ABLATION_TESTS": False,        # 是否在训练出 Top1 参数后，一次性跑完下方消融场景；稳定性验证阶段默认关闭
 }
 
-STABILITY_SCENARIOS = [
+STABILITY_POOL_SCENARIOS = [
     {
         "id": "SV_sample600_seed20260814",
         "name": "SV_抽样600_seed20260814",
-        "enabled": True,
+        "enabled": False,
         "description": "当前主样本复验，用来和过去多轮结果保持可比。",
         "overrides": {"MAX_STOCKS_PER_BOARD": 600, "POOL_SAMPLE_SEED": 20260814},
     },
     {
         "id": "SV_sample600_seed20240101",
         "name": "SV_抽样600_seed20240101",
-        "enabled": True,
+        "enabled": False,
         "description": "换一个随机种子抽样 600 只主板股票，验证策略是否依赖原始样本。",
         "overrides": {"MAX_STOCKS_PER_BOARD": 600, "POOL_SAMPLE_SEED": 20240101},
     },
     {
         "id": "SV_sample600_seed20250101",
         "name": "SV_抽样600_seed20250101",
-        "enabled": True,
+        "enabled": False,
         "description": "再换一个随机种子抽样 600 只主板股票，继续检查样本稳定性。",
         "overrides": {"MAX_STOCKS_PER_BOARD": 600, "POOL_SAMPLE_SEED": 20250101},
     },
     {
+        "id": "SV_sample600_seed20230315",
+        "name": "SV_抽样600_seed20230315",
+        "enabled": False,
+        "description": "新增固定随机种子抽样 600 只主板股票，用来复验默认辅助排序是否继续稳定。",
+        "overrides": {"MAX_STOCKS_PER_BOARD": 600, "POOL_SAMPLE_SEED": 20230315},
+    },
+    {
+        "id": "SV_sample600_seed20241111",
+        "name": "SV_抽样600_seed20241111",
+        "enabled": False,
+        "description": "新增固定随机种子抽样 600 只主板股票，继续扩大股票池稳定性验证范围。",
+        "overrides": {"MAX_STOCKS_PER_BOARD": 600, "POOL_SAMPLE_SEED": 20241111},
+    },
+    {
         "id": "SV_all_main",
         "name": "SV_主板全量",
-        "enabled": False,
+        "enabled": True,
         "description": "使用当前主板全部可用标的验证，不再随机抽样；耗时会明显更长。",
         "overrides": {"MAX_STOCKS_PER_BOARD": None, "POOL_SAMPLE_SEED": None},
     },
 ]
+
+STABILITY_STRATEGY_SCENARIOS = [
+    {
+        "id": "PT_base",
+        "name": "压力基准_原策略",
+        "enabled": True,
+        "description": "当前候选主策略的基准压力测试：0.2% 单边滑点，信号后下一交易日开盘执行。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.002,
+            "BUY_EXECUTION_DELAY_DAYS": 1,
+            "SELL_EXECUTION_DELAY_DAYS": 1,
+            "COMMISSION_RATE": 0.00025,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": True,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+    {
+        "id": "PT_slippage_0p3",
+        "name": "压力_滑点0.3%",
+        "enabled": False,
+        "description": "只把单边滑点从 0.2% 提高到 0.3%，测试交易摩擦小幅上升后的承压能力。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.003,
+            "BUY_EXECUTION_DELAY_DAYS": 1,
+            "SELL_EXECUTION_DELAY_DAYS": 1,
+            "COMMISSION_RATE": 0.00025,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": True,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+    {
+        "id": "PT_slippage_0p5",
+        "name": "压力_滑点0.5%",
+        "enabled": False,
+        "description": "只把单边滑点提高到 0.5%，模拟成交明显不利或追买卖出都不理想的情况。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.005,
+            "BUY_EXECUTION_DELAY_DAYS": 1,
+            "SELL_EXECUTION_DELAY_DAYS": 1,
+            "COMMISSION_RATE": 0.00025,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": True,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+    {
+        "id": "PT_buy_delay_2d",
+        "name": "压力_买入慢一天",
+        "enabled": True,
+        "description": "买入从信号后下一交易日开盘延迟到第 2 个交易日开盘，测试追不上信号时的影响。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.002,
+            "BUY_EXECUTION_DELAY_DAYS": 2,
+            "SELL_EXECUTION_DELAY_DAYS": 1,
+            "COMMISSION_RATE": 0.00025,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": True,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+    {
+        "id": "PT_sell_delay_2d",
+        "name": "压力_卖出慢一天",
+        "enabled": False,
+        "description": "卖出从触发后下一交易日开盘延迟到第 2 个交易日开盘，测试止损和止盈执行变慢的影响。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.002,
+            "BUY_EXECUTION_DELAY_DAYS": 1,
+            "SELL_EXECUTION_DELAY_DAYS": 2,
+            "COMMISSION_RATE": 0.00025,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": True,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+    {
+        "id": "PT_buy_sell_delay_2d",
+        "name": "压力_买卖都慢一天",
+        "enabled": False,
+        "description": "买入和卖出都比当前基准慢一个交易日，测试执行纪律或成交不及时的综合影响。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.002,
+            "BUY_EXECUTION_DELAY_DAYS": 2,
+            "SELL_EXECUTION_DELAY_DAYS": 2,
+            "COMMISSION_RATE": 0.00025,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": True,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+    {
+        "id": "PT_buy_delay_revalidate",
+        "name": "压力_买入慢一天需复核",
+        "enabled": False,
+        "description": "买入晚一天时，不直接追买旧信号；只有执行前一晚仍满足买入条件才允许买入，否则放弃。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.002,
+            "BUY_EXECUTION_DELAY_DAYS": 2,
+            "SELL_EXECUTION_DELAY_DAYS": 1,
+            "REVALIDATE_DELAYED_BUY_SIGNAL": True,
+            "COMMISSION_RATE": 0.00025,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": True,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+    {
+        "id": "PT_buy_delay_signal_gap_2p",
+        "name": "压力_慢一天信号涨幅2%",
+        "enabled": True,
+        "description": "买入晚一天时，不重新完整复核信号；只要执行日开盘相对原信号日收盘涨幅超过 2% 就放弃，测试少追高是否改善结果。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.002,
+            "BUY_EXECUTION_DELAY_DAYS": 2,
+            "SELL_EXECUTION_DELAY_DAYS": 1,
+            "REVALIDATE_DELAYED_BUY_SIGNAL": False,
+            "MAX_DELAYED_BUY_GAP_FROM_SIGNAL_CLOSE": 0.02,
+            "MAX_DELAYED_BUY_GAP_FROM_FIRST_OPEN": None,
+            "REQUIRE_DELAYED_BUY_ABOVE_MA20": False,
+            "COMMISSION_RATE": 0.00025,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": True,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+    {
+        "id": "PT_buy_delay_first_open_gap_0p",
+        "name": "压力_慢一天不比原计划贵",
+        "enabled": True,
+        "description": "买入晚一天时，若执行日开盘高于原计划买入日开盘就放弃；测试错过后只在价格回落或不贵时才补买。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.002,
+            "BUY_EXECUTION_DELAY_DAYS": 2,
+            "SELL_EXECUTION_DELAY_DAYS": 1,
+            "REVALIDATE_DELAYED_BUY_SIGNAL": False,
+            "MAX_DELAYED_BUY_GAP_FROM_SIGNAL_CLOSE": None,
+            "MAX_DELAYED_BUY_GAP_FROM_FIRST_OPEN": 0.0,
+            "REQUIRE_DELAYED_BUY_ABOVE_MA20": False,
+            "COMMISSION_RATE": 0.00025,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": True,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+    {
+        "id": "PT_buy_delay_first_open_gap_2p",
+        "name": "压力_慢一天原计划涨幅2%",
+        "enabled": True,
+        "description": "买入晚一天时，若执行日开盘相对原计划买入日开盘涨幅超过 2% 就放弃；测试允许小幅买贵是否比完全不追更均衡。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.002,
+            "BUY_EXECUTION_DELAY_DAYS": 2,
+            "SELL_EXECUTION_DELAY_DAYS": 1,
+            "REVALIDATE_DELAYED_BUY_SIGNAL": False,
+            "MAX_DELAYED_BUY_GAP_FROM_SIGNAL_CLOSE": None,
+            "MAX_DELAYED_BUY_GAP_FROM_FIRST_OPEN": 0.02,
+            "REQUIRE_DELAYED_BUY_ABOVE_MA20": False,
+            "COMMISSION_RATE": 0.00025,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": True,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+    {
+        "id": "PT_no_weak_buy",
+        "name": "压力_弱市不买",
+        "enabled": False,
+        "description": "关闭弱市高分小仓买入，检查全量验证中弱市信号贡献是否真实重要。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.002,
+            "BUY_EXECUTION_DELAY_DAYS": 1,
+            "SELL_EXECUTION_DELAY_DAYS": 1,
+            "COMMISSION_RATE": 0.00025,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": False,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+    {
+        "id": "PT_harsh_execution",
+        "name": "压力_高摩擦组合",
+        "enabled": False,
+        "description": "单边滑点 0.5%、买卖都慢一个交易日、佣金率提高到万五，用来做偏严苛实盘压力测试。",
+        "overrides": {
+            "SLIPPAGE_RATE": 0.005,
+            "BUY_EXECUTION_DELAY_DAYS": 2,
+            "SELL_EXECUTION_DELAY_DAYS": 2,
+            "COMMISSION_RATE": 0.0005,
+            "ENABLE_CANDIDATE_RANKING": False,
+            "CANDIDATE_RANKING_REGIMES": None,
+            "RANK_PRIMARY_SCORE_BAND": None,
+            "MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_DISTANCE_MA20": None,
+            "STRONG_MAX_ENTRY_VOLUME_RATIO": None,
+            "WEAK_ALLOW_HIGH_SCORE_BUY": True,
+            "RANK_WEIGHT_TREND": 12,
+            "RANK_WEIGHT_LIQUIDITY": 8,
+            "RANK_WEIGHT_BREAKOUT": 10,
+            "RANK_WEIGHT_RSI": 8,
+            "RANK_WEIGHT_DISTANCE": 10,
+        },
+    },
+]
+
+def build_stability_scenarios():
+    scenarios = []
+    for strategy in STABILITY_STRATEGY_SCENARIOS:
+        for pool in STABILITY_POOL_SCENARIOS:
+            overrides = dict(strategy.get("overrides", {}))
+            overrides.update(pool.get("overrides", {}))
+            scenarios.append({
+                "id": f"{strategy['id']}__{pool['id']}",
+                "name": f"{strategy['name']} | {pool['name']}",
+                "enabled": strategy.get("enabled", True) and pool.get("enabled", True),
+                "description": f"{strategy['description']}；{pool['description']}",
+                "overrides": overrides,
+            })
+    return scenarios
+
+STABILITY_SCENARIOS = build_stability_scenarios()
 
 FIXED_PARAM_RECHECKS = [
     {
@@ -180,7 +531,7 @@ FIXED_PARAM_RECHECKS = [
         "params": {
             "BUY_SCORE_THRESHOLD": 60,
             "STOP_LOSS_RATE": -0.07,
-            "MAX_HOLD_DAYS": 10,
+            "MAX_HOLD_DAYS": 20,
             "RSI_OVERSOLD": 80,
             "TIME_SUNK_TOLERANCE": 0.03,
         },
@@ -552,7 +903,7 @@ def get_regime_controls(market_context, current_date, base_max_holdings, base_po
         "buy_threshold": base_buy_threshold,
     }
 
-def passes_entry_quality_filter(today_k):
+def passes_entry_quality_filter(today_k, regime=None):
     if CONFIG["REQUIRE_STOCK_MA60_UP"]:
         if not (today_k["收盘"] > today_k["MA60"] and today_k["MA60"] >= today_k["MA60_prev5"]):
             return False
@@ -561,13 +912,81 @@ def passes_entry_quality_filter(today_k):
     if vol_ratio < CONFIG["MIN_ENTRY_VOLUME_RATIO"]:
         return False
 
+    if regime == "强":
+        ma20 = today_k.get("MA20", 0)
+        if ma20 > 0:
+            distance_ma20 = today_k["收盘"] / ma20 - 1
+            strong_max_distance = CONFIG.get("STRONG_MAX_ENTRY_DISTANCE_MA20")
+            if strong_max_distance is not None and distance_ma20 > strong_max_distance:
+                return False
+
+        strong_max_volume_ratio = CONFIG.get("STRONG_MAX_ENTRY_VOLUME_RATIO")
+        if strong_max_volume_ratio is not None and vol_ratio > strong_max_volume_ratio:
+            return False
+
     min_amount = CONFIG.get("MIN_AVG_AMOUNT_20")
     if min_amount is not None and today_k.get("Amount_MA20", 0) < min_amount:
         return False
 
     return True
 
-def calculate_candidate_rank_score(today_k, recent_5, base_score):
+def candidate_ranking_applies(regime):
+    if not CONFIG.get("ENABLE_CANDIDATE_RANKING", False):
+        return False
+    ranking_regimes = CONFIG.get("CANDIDATE_RANKING_REGIMES")
+    if ranking_regimes is None:
+        return True
+    return regime in ranking_regimes
+
+def candidate_sort_key(candidate):
+    if len(candidate) == 7:
+        _signal_idx, _execute_idx, _symbol, score, rank_score, _prev_close, signal_snapshot = candidate
+    elif len(candidate) == 6:
+        _execute_idx, _symbol, score, rank_score, _prev_close, signal_snapshot = candidate
+    else:
+        _symbol, score, rank_score, _prev_close, signal_snapshot = candidate
+    signal_regime = signal_snapshot.get("信号日市场环境") if isinstance(signal_snapshot, dict) else None
+    if not candidate_ranking_applies(signal_regime):
+        return (score, rank_score)
+
+    score_band = CONFIG.get("RANK_PRIMARY_SCORE_BAND")
+    if score_band:
+        score_bucket = int(score // score_band)
+        return (score_bucket, rank_score, score)
+
+    return (rank_score, score)
+
+def calculate_buy_signal_score(df, current_date):
+    today_k = df.loc[current_date]
+    score = 0
+    ma_list = [today_k["MA5"], today_k["MA10"], today_k["MA20"]]
+    if (max(ma_list) - min(ma_list)) / min(ma_list) < 0.03:
+        score += 10
+    if today_k["收盘"] > today_k["MA5"] > today_k["MA10"] > today_k["MA20"]:
+        score += 20
+    elif today_k["收盘"] > today_k["MA20"]:
+        score += 10
+
+    volume_ratio = today_k["成交量"] / (today_k["Vol_MA20"] + 1e-9)
+    if 1.5 <= volume_ratio <= 2.5:
+        score += 15
+    if 55 <= today_k["RSI14"] <= 68:
+        score += 15
+    elif 50 <= today_k["RSI14"] < 55:
+        score += 8
+
+    if today_k["收盘"] > today_k["MA60"] and today_k["MA60"] >= today_k["MA60_prev5"]:
+        score += 18
+    elif today_k["收盘"] > today_k["MA60"]:
+        score += 10
+
+    recent_5 = df.loc[:current_date].iloc[-5:]
+    if sum(recent_5["收盘"] > recent_5["开盘"]) >= 3:
+        score += 12 if today_k["收盘"] >= today_k["High_20"] else 8
+
+    return score, recent_5
+
+def calculate_candidate_rank_score(today_k, recent_5, base_score, regime=None):
     close = today_k["收盘"]
     ma20 = today_k["MA20"]
     if ma20 <= 0:
@@ -578,7 +997,7 @@ def calculate_candidate_rank_score(today_k, recent_5, base_score):
     if max_distance is not None and distance_ma20 > max_distance:
         return None
 
-    if not CONFIG.get("ENABLE_CANDIDATE_RANKING", False):
+    if not candidate_ranking_applies(regime):
         return base_score
 
     rank_score = float(base_score)
@@ -676,6 +1095,15 @@ def build_execution_snapshot(df, buy_date, prev_close, market_context):
         "买入日开盘跳空": buy_gap,
         "买入日开盘距MA20": open_distance_ma20,
     }
+
+def get_original_plan_open(df, period_dates, signal_idx):
+    first_execute_idx = signal_idx + 1
+    if first_execute_idx >= len(period_dates):
+        return np.nan
+    first_execute_date = period_dates[first_execute_idx]
+    if first_execute_date not in df.index:
+        return np.nan
+    return safe_float(df.loc[first_execute_date].get("开盘"))
 
 def should_trigger_weak_holding_exit(pos, return_rate, regime):
     if not CONFIG.get("ENABLE_WEAK_HOLDING_EXIT", False) or regime != "弱":
@@ -1064,6 +1492,7 @@ def build_yearly_diagnostic_stats(equity_df):
         trading_days = len(group)
         empty_days = int((group["持仓数量"] == 0).sum())
         high_gap_skips = int(group["高开跳过数"].sum()) if "高开跳过数" in group.columns else 0
+        delayed_price_skips = int(group["延迟价格放弃数"].sum()) if "延迟价格放弃数" in group.columns else 0
         cash_skips = int(group["资金不足跳过数"].sum()) if "资金不足跳过数" in group.columns else 0
         holding_limit_skips = int(group["持仓上限跳过数"].sum()) if "持仓上限跳过数" in group.columns else 0
         risk_pause_days = int(group["风控暂停"].sum()) if "风控暂停" in group.columns else 0
@@ -1078,6 +1507,7 @@ def build_yearly_diagnostic_stats(equity_df):
             "信号总数": int(group["当日信号数"].sum()),
             "买入总数": int(group["当日买入数"].sum()),
             "高开跳过": high_gap_skips,
+            "延迟价格放弃": delayed_price_skips,
             "资金不足跳过": cash_skips,
             "持仓上限跳过": holding_limit_skips,
             "风控暂停天数": risk_pause_days,
@@ -1096,6 +1526,7 @@ def build_regime_diagnostic_stats(equity_df):
         trading_days = len(group)
         empty_days = int((group["持仓数量"] == 0).sum())
         high_gap_skips = int(group["高开跳过数"].sum()) if "高开跳过数" in group.columns else 0
+        delayed_price_skips = int(group["延迟价格放弃数"].sum()) if "延迟价格放弃数" in group.columns else 0
         cash_skips = int(group["资金不足跳过数"].sum()) if "资金不足跳过数" in group.columns else 0
         holding_limit_skips = int(group["持仓上限跳过数"].sum()) if "持仓上限跳过数" in group.columns else 0
         risk_pause_days = int(group["风控暂停"].sum()) if "风控暂停" in group.columns else 0
@@ -1110,6 +1541,7 @@ def build_regime_diagnostic_stats(equity_df):
             "信号总数": int(group["当日信号数"].sum()),
             "买入总数": int(group["当日买入数"].sum()),
             "高开跳过": high_gap_skips,
+            "延迟价格放弃": delayed_price_skips,
             "资金不足跳过": cash_skips,
             "持仓上限跳过": holding_limit_skips,
             "风控暂停天数": risk_pause_days,
@@ -1706,6 +2138,15 @@ def build_blind_summary(blind_res, benchmark_kpi, best_params, stock_count, scen
         "消融场景ID": scenario.get("id", "") if scenario else "",
         "消融场景": scenario.get("name", "") if scenario else "",
         "消融说明": scenario.get("description", "") if scenario else "",
+        "滑点率": CONFIG["SLIPPAGE_RATE"],
+        "佣金率": CONFIG["COMMISSION_RATE"],
+        "印花税率": CONFIG["TAX_RATE"],
+        "买入执行延迟交易日": CONFIG["BUY_EXECUTION_DELAY_DAYS"],
+        "卖出执行延迟交易日": CONFIG["SELL_EXECUTION_DELAY_DAYS"],
+        "延迟买入复核": CONFIG["REVALIDATE_DELAYED_BUY_SIGNAL"],
+        "延迟买入信号收盘涨幅上限": CONFIG["MAX_DELAYED_BUY_GAP_FROM_SIGNAL_CLOSE"],
+        "延迟买入原计划开盘涨幅上限": CONFIG["MAX_DELAYED_BUY_GAP_FROM_FIRST_OPEN"],
+        "延迟买入要求站上MA20": CONFIG["REQUIRE_DELAYED_BUY_ABOVE_MA20"],
         "期初资金": initial_capital,
         "期末总权益": final_equity,
         "已实现盈亏": realized_profit,
@@ -1729,6 +2170,8 @@ def build_blind_summary(blind_res, benchmark_kpi, best_params, stock_count, scen
         "实际买入次数": executed_buy_total,
         "未买入候选跟踪数": candidate_watch_total,
         "高开跳过次数": risk_stats["高开跳过次数"],
+        "买入复核放弃次数": risk_stats["买入复核放弃次数"],
+        "延迟价格放弃次数": risk_stats["延迟价格放弃次数"],
         "资金不足跳过次数": risk_stats["资金不足跳过次数"],
         "持仓上限跳过次数": risk_stats["持仓上限跳过次数"],
         "连续亏损暂停次数": risk_stats["连续亏损暂停次数"],
@@ -1758,7 +2201,11 @@ def build_blind_summary(blind_res, benchmark_kpi, best_params, stock_count, scen
         "强市最大持仓覆盖": CONFIG["STRONG_MAX_HOLDINGS"],
         "强市单票仓位覆盖": CONFIG["STRONG_POSITION_PER_STOCK"],
         "启用候选排序": CONFIG["ENABLE_CANDIDATE_RANKING"],
+        "候选排序适用环境": str(CONFIG["CANDIDATE_RANKING_REGIMES"]),
+        "排序原始分档": CONFIG["RANK_PRIMARY_SCORE_BAND"],
         "最大入场偏离MA20": CONFIG["MAX_ENTRY_DISTANCE_MA20"],
+        "强市最大入场偏离MA20": CONFIG["STRONG_MAX_ENTRY_DISTANCE_MA20"],
+        "强市最高量比": CONFIG["STRONG_MAX_ENTRY_VOLUME_RATIO"],
         "排序趋势权重": CONFIG["RANK_WEIGHT_TREND"],
         "排序流动性权重": CONFIG["RANK_WEIGHT_LIQUIDITY"],
         "排序突破权重": CONFIG["RANK_WEIGHT_BREAKOUT"],
@@ -1822,7 +2269,7 @@ def print_blind_summary(summary, output_dir, output_paths):
     print(f"▶ 基准回撤 : {summary['基准最大回撤']*100:.2f}% | 基准Calmar: {summary['基准Calmar']:.2f} | 基准Sharpe: {summary['基准Sharpe']:.2f}")
     print(f"▶ 交易次数 : {summary['交易次数']}")
     print(f"▶ 参与度 : 平均股票仓位 {summary['平均股票仓位']*100:.2f}% | 平均持仓 {summary['平均持仓数']:.2f} 只 | 空仓 {summary['空仓天数']} 天 ({summary['空仓占比']*100:.2f}%)")
-    print(f"▶ 信号漏斗 : 扫描信号 {summary['扫描信号总数']} 个 | 实际买入 {summary['实际买入次数']} 次 | 未买入候选跟踪 {summary['未买入候选跟踪数']} 条 | 高开跳过 {summary['高开跳过次数']} 次 | 持仓上限跳过 {summary['持仓上限跳过次数']} 次")
+    print(f"▶ 信号漏斗 : 扫描信号 {summary['扫描信号总数']} 个 | 实际买入 {summary['实际买入次数']} 次 | 未买入候选跟踪 {summary['未买入候选跟踪数']} 条 | 高开跳过 {summary['高开跳过次数']} 次 | 复核放弃 {summary['买入复核放弃次数']} 次 | 延迟价格放弃 {summary['延迟价格放弃次数']} 次 | 持仓上限跳过 {summary['持仓上限跳过次数']} 次")
     print(f"▶ 风控介入 : 连续亏损暂停 {summary['连续亏损暂停次数']} 次 | 回撤暂停 {summary['回撤暂停次数']} 次 | 暂停开仓 {summary['暂停开仓天数']} 天")
     print(f"▶ 市场分级 : 强 {summary['强市场天数']} 天 | 中 {summary['中性市场天数']} 天 | 弱 {summary['弱市场天数']} 天")
     print(f"▶ 结果目录 : {output_dir}")
@@ -1848,6 +2295,16 @@ def build_ablation_compare_row(scenario, summary, blind_res, output_dir):
         "场景": scenario["name"],
         "说明": scenario["description"],
         "参数组合": summary["最优参数"],
+        "期初资金": summary["期初资金"],
+        "滑点率": summary["滑点率"],
+        "佣金率": summary["佣金率"],
+        "印花税率": summary["印花税率"],
+        "买入执行延迟交易日": summary["买入执行延迟交易日"],
+        "卖出执行延迟交易日": summary["卖出执行延迟交易日"],
+        "延迟买入复核": summary["延迟买入复核"],
+        "延迟买入信号收盘涨幅上限": summary["延迟买入信号收盘涨幅上限"],
+        "延迟买入原计划开盘涨幅上限": summary["延迟买入原计划开盘涨幅上限"],
+        "延迟买入要求站上MA20": summary["延迟买入要求站上MA20"],
         "抽样上限": summary["抽样上限"],
         "抽样种子": summary["抽样种子"],
         "实际股票数量": summary["实际股票数量"],
@@ -1860,7 +2317,16 @@ def build_ablation_compare_row(scenario, summary, blind_res, output_dir):
         "平均股票仓位": summary["平均股票仓位"],
         "空仓占比": summary["空仓占比"],
         "启用候选排序": summary["启用候选排序"],
+        "候选排序适用环境": summary["候选排序适用环境"],
+        "排序原始分档": summary["排序原始分档"],
         "最大入场偏离MA20": summary["最大入场偏离MA20"],
+        "强市最大入场偏离MA20": summary["强市最大入场偏离MA20"],
+        "强市最高量比": summary["强市最高量比"],
+        "排序趋势权重": summary["排序趋势权重"],
+        "排序流动性权重": summary["排序流动性权重"],
+        "排序突破权重": summary["排序突破权重"],
+        "排序RSI权重": summary["排序RSI权重"],
+        "排序MA20距离权重": summary["排序MA20距离权重"],
         "破位确认天数": summary["破位确认天数"],
         "强市破位确认天数": summary["强市破位确认天数"],
         "弱市破位确认天数": summary["弱市破位确认天数"],
@@ -1879,6 +2345,8 @@ def build_ablation_compare_row(scenario, summary, blind_res, output_dir):
         "扫描信号总数": summary["扫描信号总数"],
         "实际买入次数": summary["实际买入次数"],
         "未买入候选跟踪数": summary["未买入候选跟踪数"],
+        "买入复核放弃次数": summary["买入复核放弃次数"],
+        "延迟价格放弃次数": summary["延迟价格放弃次数"],
         "持仓上限跳过次数": summary["持仓上限跳过次数"],
         "强市盈亏贡献": regime_value("强", "盈亏贡献"),
         "中性盈亏贡献": regime_value("中", "盈亏贡献"),
@@ -1890,8 +2358,8 @@ def build_ablation_compare_row(scenario, summary, blind_res, output_dir):
     }
 
 def generate_ablation_compare_report(output_path, compare_df, title="消融对照测试汇总"):
-    money_cols = {"强市盈亏贡献", "中性盈亏贡献", "弱市盈亏贡献"}
-    pct_cols = {"总收益率", "超额收益率", "最大回撤", "平均股票仓位", "空仓占比", "最大入场偏离MA20", "回撤止盈启动收益", "回撤止盈回撤比例", "弱市单票仓位倍率", "弱市专用止损阈值", "转弱持仓退出最高收益", "强市平均仓位", "中性平均仓位", "弱市平均仓位"}
+    money_cols = {"期初资金", "强市盈亏贡献", "中性盈亏贡献", "弱市盈亏贡献"}
+    pct_cols = {"滑点率", "佣金率", "印花税率", "总收益率", "超额收益率", "最大回撤", "平均股票仓位", "空仓占比", "最大入场偏离MA20", "强市最大入场偏离MA20", "回撤止盈启动收益", "回撤止盈回撤比例", "弱市单票仓位倍率", "弱市专用止损阈值", "转弱持仓退出最高收益", "延迟买入信号收盘涨幅上限", "延迟买入原计划开盘涨幅上限", "强市平均仓位", "中性平均仓位", "弱市平均仓位"}
     column_kinds = {col: "money" for col in compare_df.columns if col in money_cols}
     column_kinds.update({col: "pct" for col in compare_df.columns if col in pct_cols})
     html_content = f"""<!doctype html>
@@ -2097,7 +2565,10 @@ def run_stability_validation():
         print("\n" + "="*58)
         print("          【稳定性验证汇总】          ")
         print("="*58)
-        print(compare_df[["场景", "抽样上限", "抽样种子", "实际股票数量", "总收益率", "超额收益率", "最大回撤", "Calmar", "Sharpe", "平均股票仓位", "未买入候选跟踪数", "强市盈亏贡献", "中性盈亏贡献", "弱市盈亏贡献"]].to_string(index=False, formatters={
+        print(compare_df[["场景", "滑点率", "买入执行延迟交易日", "卖出执行延迟交易日", "延迟买入复核", "延迟买入信号收盘涨幅上限", "延迟买入原计划开盘涨幅上限", "抽样上限", "抽样种子", "实际股票数量", "总收益率", "超额收益率", "最大回撤", "Calmar", "Sharpe", "平均股票仓位", "未买入候选跟踪数", "买入复核放弃次数", "延迟价格放弃次数", "强市盈亏贡献", "中性盈亏贡献", "弱市盈亏贡献"]].to_string(index=False, formatters={
+            "滑点率": lambda x: f"{x*100:.2f}%",
+            "延迟买入信号收盘涨幅上限": lambda x: "" if pd.isna(x) else f"{x*100:.2f}%",
+            "延迟买入原计划开盘涨幅上限": lambda x: "" if pd.isna(x) else f"{x*100:.2f}%",
             "总收益率": lambda x: f"{x*100:+.2f}%",
             "超额收益率": lambda x: f"{x*100:+.2f}%",
             "最大回撤": lambda x: f"{x*100:.2f}%",
@@ -2182,6 +2653,8 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
         "高开跳过次数": 0,
         "资金不足跳过次数": 0,
         "持仓上限跳过次数": 0,
+        "买入复核放弃次数": 0,
+        "延迟价格放弃次数": 0,
     }
     consecutive_loss_trades = 0
     loss_cooldown_until_idx = -1
@@ -2191,12 +2664,15 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
 
     period_dates = get_trading_calendar(benchmark_data, market_data, start_date, end_date)
     pending_buys, pending_sells = [], []
+    buy_execution_delay = max(1, int(CONFIG.get("BUY_EXECUTION_DELAY_DAYS", 1)))
+    sell_execution_delay = max(1, int(CONFIG.get("SELL_EXECUTION_DELAY_DAYS", 1)))
 
     for date_idx, current_date in enumerate(period_dates):
         regime_controls = get_regime_controls(market_context, current_date, max_holdings, max_position_per_stock, buy_threshold)
         day_signal_count = 0
         day_executed_buy_count = 0
         day_gap_skip_count = 0
+        day_delayed_price_skip_count = 0
         day_cash_skip_count = 0
         day_limit_skip_count = 0
         if regime_controls["regime"] == "强":
@@ -2208,7 +2684,15 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
 
         # 1. 卖出
         still_pending_sells = []
-        for symbol, reason in pending_sells:
+        for pending_sell in pending_sells:
+            if len(pending_sell) == 3:
+                execute_idx, symbol, reason = pending_sell
+            else:
+                execute_idx = date_idx
+                symbol, reason = pending_sell
+            if execute_idx > date_idx:
+                still_pending_sells.append((execute_idx, symbol, reason))
+                continue
             if symbol in portfolio and current_date in market_data[symbol].index:
                 exec_price = market_data[symbol].loc[current_date]["开盘"] * (1 - CONFIG["SLIPPAGE_RATE"])
                 shares = portfolio[symbol]["shares"]
@@ -2260,21 +2744,38 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
                     risk_stats["连续亏损暂停次数"] += 1
                     consecutive_loss_trades = 0
             elif symbol in portfolio:
-                still_pending_sells.append((symbol, reason))
+                still_pending_sells.append((execute_idx, symbol, reason))
         pending_sells = still_pending_sells
+        pending_sell_symbols = {item[1] if len(item) == 3 else item[0] for item in pending_sells}
 
         # 2. 买入
+        executable_buys, future_buys = [], []
+        for pending_buy in pending_buys:
+            if len(pending_buy) == 7:
+                signal_idx, execute_idx, symbol, score, rank_score, prev_close, signal_snapshot = pending_buy
+            elif len(pending_buy) == 6:
+                signal_idx = max(0, pending_buy[0] - buy_execution_delay)
+                execute_idx, symbol, score, rank_score, prev_close, signal_snapshot = pending_buy
+            else:
+                signal_idx = date_idx
+                execute_idx = date_idx
+                symbol, score, rank_score, prev_close, signal_snapshot = pending_buy
+            if execute_idx <= date_idx:
+                executable_buys.append((signal_idx, symbol, score, rank_score, prev_close, signal_snapshot))
+            else:
+                future_buys.append((signal_idx, execute_idx, symbol, score, rank_score, prev_close, signal_snapshot))
+
         risk_pause_active = date_idx <= loss_cooldown_until_idx or date_idx <= drawdown_cooldown_until_idx
         if risk_pause_active or not regime_controls["allow_new_positions"]:
-            pending_buys.clear()
+            pending_buys = future_buys
         else:
-            pending_buys.sort(key=lambda x: x[2], reverse=True)
-            for buy_idx, (symbol, score, rank_score, prev_close, signal_snapshot) in enumerate(pending_buys):
+            executable_buys.sort(key=candidate_sort_key, reverse=True)
+            for buy_idx, (signal_idx, symbol, score, rank_score, prev_close, signal_snapshot) in enumerate(executable_buys):
                 if len(portfolio) >= regime_controls["max_holdings"]:
-                    skipped_by_limit = len(pending_buys) - buy_idx
+                    skipped_by_limit = len(executable_buys) - buy_idx
                     day_limit_skip_count += skipped_by_limit
                     risk_stats["持仓上限跳过次数"] += skipped_by_limit
-                    for skipped_symbol, skipped_score, skipped_rank_score, skipped_prev_close, skipped_snapshot in pending_buys[buy_idx:]:
+                    for _skipped_signal_idx, skipped_symbol, skipped_score, skipped_rank_score, skipped_prev_close, skipped_snapshot in executable_buys[buy_idx:]:
                         watch_record = build_candidate_watch_record(
                             skipped_symbol,
                             skipped_score,
@@ -2293,8 +2794,90 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
                     break
                 if symbol in portfolio or current_date not in market_data[symbol].index: continue
 
-                ideal_price = market_data[symbol].loc[current_date]["开盘"]
-                if (ideal_price - prev_close) / prev_close > CONFIG["MAX_BUY_GAP_RATE"]:
+                if CONFIG.get("REVALIDATE_DELAYED_BUY_SIGNAL", False) and date_idx - signal_idx > 1:
+                    validation_idx = date_idx - 1
+                    if validation_idx < 0:
+                        risk_stats["买入复核放弃次数"] += 1
+                        continue
+                    validation_date = period_dates[validation_idx]
+                    validation_df = market_data[symbol]
+                    validation_controls = get_regime_controls(
+                        market_context,
+                        validation_date,
+                        max_holdings,
+                        max_position_per_stock,
+                        buy_threshold,
+                    )
+                    if (
+                        validation_date not in validation_df.index
+                        or not validation_controls["allow_new_positions"]
+                    ):
+                        risk_stats["买入复核放弃次数"] += 1
+                        continue
+                    validation_k = validation_df.loc[validation_date]
+                    if validation_k["RSI14"] > rsi_oversold:
+                        risk_stats["买入复核放弃次数"] += 1
+                        continue
+                    if not passes_entry_quality_filter(validation_k, validation_controls["regime"]):
+                        risk_stats["买入复核放弃次数"] += 1
+                        continue
+                    recheck_score, recheck_recent_5 = calculate_buy_signal_score(validation_df, validation_date)
+                    if recheck_score < validation_controls["buy_threshold"]:
+                        risk_stats["买入复核放弃次数"] += 1
+                        continue
+                    recheck_rank_score = calculate_candidate_rank_score(
+                        validation_k,
+                        recheck_recent_5,
+                        recheck_score,
+                        validation_controls["regime"],
+                    )
+                    if recheck_rank_score is None:
+                        risk_stats["买入复核放弃次数"] += 1
+                        continue
+                    score = recheck_score
+                    rank_score = recheck_rank_score
+                    prev_close = validation_k["收盘"]
+                    signal_snapshot = build_signal_snapshot(symbol, validation_df, validation_date, market_context)
+
+                df_for_buy = market_data[symbol]
+                buy_row = df_for_buy.loc[current_date]
+                ideal_price = safe_float(buy_row.get("开盘"))
+                if pd.isna(ideal_price) or ideal_price <= 0:
+                    continue
+                original_signal_close = safe_float(signal_snapshot.get("信号日收盘", prev_close))
+                original_plan_open = get_original_plan_open(df_for_buy, period_dates, signal_idx)
+                gap_from_signal_close = ideal_price / original_signal_close - 1 if original_signal_close and original_signal_close > 0 else np.nan
+                gap_from_first_open = ideal_price / original_plan_open - 1 if original_plan_open and original_plan_open > 0 else np.nan
+
+                if date_idx - signal_idx > 1:
+                    max_delayed_signal_gap = CONFIG.get("MAX_DELAYED_BUY_GAP_FROM_SIGNAL_CLOSE")
+                    max_delayed_first_open_gap = CONFIG.get("MAX_DELAYED_BUY_GAP_FROM_FIRST_OPEN")
+                    delayed_above_ma20_required = CONFIG.get("REQUIRE_DELAYED_BUY_ABOVE_MA20", False)
+
+                    if (
+                        max_delayed_signal_gap is not None
+                        and not pd.isna(gap_from_signal_close)
+                        and gap_from_signal_close > max_delayed_signal_gap
+                    ):
+                        day_delayed_price_skip_count += 1
+                        risk_stats["延迟价格放弃次数"] += 1
+                        continue
+                    if (
+                        max_delayed_first_open_gap is not None
+                        and not pd.isna(gap_from_first_open)
+                        and gap_from_first_open > max_delayed_first_open_gap
+                    ):
+                        day_delayed_price_skip_count += 1
+                        risk_stats["延迟价格放弃次数"] += 1
+                        continue
+                    if delayed_above_ma20_required:
+                        ma20 = safe_float(buy_row.get("MA20"))
+                        if pd.isna(ma20) or ideal_price < ma20:
+                            day_delayed_price_skip_count += 1
+                            risk_stats["延迟价格放弃次数"] += 1
+                            continue
+
+                if prev_close and prev_close > 0 and (ideal_price - prev_close) / prev_close > CONFIG["MAX_BUY_GAP_RATE"]:
                     day_gap_skip_count += 1
                     risk_stats["高开跳过次数"] += 1
                     continue
@@ -2310,6 +2893,12 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
                     cash -= total_invested
                     entry_snapshot = dict(signal_snapshot)
                     entry_snapshot.update(build_execution_snapshot(market_data[symbol], current_date, prev_close, market_context))
+                    entry_snapshot.update({
+                        "买入执行延迟交易日": date_idx - signal_idx,
+                        "原计划买入日开盘": original_plan_open,
+                        "买入日相对信号收盘涨幅": gap_from_signal_close,
+                        "买入日相对原计划开盘涨幅": gap_from_first_open,
+                    })
 
                     portfolio[symbol] = {
                         "shares": shares_to_buy,
@@ -2330,10 +2919,11 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
                 else:
                     day_cash_skip_count += 1
                     risk_stats["资金不足跳过次数"] += 1
-        pending_buys.clear()
+            pending_buys = future_buys
 
         # 3. 持仓体检
         for symbol, pos in portfolio.items():
+            if symbol in pending_sell_symbols: continue
             if current_date not in market_data[symbol].index: continue
             today_k = market_data[symbol].loc[current_date]
             pos["days"] += 1
@@ -2363,7 +2953,7 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
             elif pos["days"] >= max_hold_days and -time_sunk_tolerance <= return_rate <= time_sunk_tolerance:
                 sell_reason = "沉没止损"
 
-            if sell_reason: pending_sells.append((symbol, sell_reason))
+            if sell_reason: pending_sells.append((date_idx + sell_execution_delay, symbol, sell_reason))
 
         current_equity = calculate_portfolio_equity(cash, portfolio, market_data, current_date, "收盘")
         if current_equity > equity_high_water_mark:
@@ -2389,34 +2979,19 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
         # 4. 扫描打分
         if market_is_healthy and not risk_pause_active:
             for symbol, df in market_data.items():
-                if symbol in portfolio or any(symbol == s for s, _ in pending_sells) or current_date not in df.index: continue
+                if symbol in portfolio or symbol in pending_sell_symbols or current_date not in df.index: continue
                 today_k = df.loc[current_date]
                 if today_k["RSI14"] > rsi_oversold: continue
-                if not passes_entry_quality_filter(today_k): continue
+                if not passes_entry_quality_filter(today_k, regime_controls["regime"]): continue
 
-                score = 0
-                ma_list = [today_k["MA5"], today_k["MA10"], today_k["MA20"]]
-                if (max(ma_list) - min(ma_list)) / min(ma_list) < 0.03: score += 10
-                if today_k["收盘"] > today_k["MA5"] > today_k["MA10"] > today_k["MA20"]: score += 20
-                elif today_k["收盘"] > today_k["MA20"]: score += 10
-
-                if 1.5 <= (today_k["成交量"] / (today_k["Vol_MA20"] + 1e-9)) <= 2.5: score += 15
-                if 55 <= today_k["RSI14"] <= 68: score += 15
-                elif 50 <= today_k["RSI14"] < 55: score += 8
-
-                if today_k["收盘"] > today_k["MA60"] and today_k["MA60"] >= today_k["MA60_prev5"]: score += 18
-                elif today_k["收盘"] > today_k["MA60"]: score += 10
-
-                recent_5 = df.loc[:current_date].iloc[-5:]
-                if sum(recent_5["收盘"] > recent_5["开盘"]) >= 3:
-                    score += 12 if today_k["收盘"] >= today_k["High_20"] else 8
+                score, recent_5 = calculate_buy_signal_score(df, current_date)
 
                 if score >= regime_controls["buy_threshold"]:
-                    rank_score = calculate_candidate_rank_score(today_k, recent_5, score)
+                    rank_score = calculate_candidate_rank_score(today_k, recent_5, score, regime_controls["regime"])
                     if rank_score is None:
                         continue
                     signal_snapshot = build_signal_snapshot(symbol, df, current_date, market_context)
-                    pending_buys.append((symbol, score, rank_score, today_k["收盘"], signal_snapshot))
+                    pending_buys.append((date_idx, date_idx + buy_execution_delay, symbol, score, rank_score, today_k["收盘"], signal_snapshot))
                     day_signal_count += 1
                     risk_stats["扫描信号总数"] += 1
 
@@ -2435,6 +3010,7 @@ def execute_single_backtest(params, market_data, stock_pool, benchmark_data, mar
             "当日信号数": day_signal_count,
             "当日买入数": day_executed_buy_count,
             "高开跳过数": day_gap_skip_count,
+            "延迟价格放弃数": day_delayed_price_skip_count,
             "资金不足跳过数": day_cash_skip_count,
             "持仓上限跳过数": day_limit_skip_count,
             "持仓上限": regime_controls["max_holdings"],
